@@ -1,0 +1,16 @@
+runners:
+  - name: internal-backend
+    url: https://github.com/my-org/backend
+    token: ABCDEFGHIJKLMNOPQRSTUVWXYZ123456
+    dir: /opt/runners/backend
+
+  - name: internal-frontend
+    url: https://github.com/my-org/frontend
+    token: ABCDEFGHIJKLMNOPQRSTUVWXYZ123456
+    dir: /opt/runners/frontend
+
+  - name: public-open-source
+    url: https://github.com/my-org/open-source
+    token: ABCDEFGHIJKLMNOPQRSTUVWXYZ123456
+    dir: /opt/runners/open-source
+    labels: linux,x64,public-runner

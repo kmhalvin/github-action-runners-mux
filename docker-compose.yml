@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  multi-runner-proxy:
+    build: .
+    image: multi-listener-runner:latest
+    container_name: multi-runner-proxy
+    restart: unless-stopped
+    # Ensure Docker's stop signal allows the 30-minute graceful drain
+    stop_grace_period: 30m
+    volumes:
+      - ./config.sample.yaml:/etc/multi-listener/config.yaml:ro
+      - runner-data:/opt/runners
+
+volumes:
+  runner-data:
