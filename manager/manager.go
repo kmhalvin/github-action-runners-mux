@@ -11,7 +11,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/kmhalvin/multi-listener-runner/config"
+	"github.com/kmhalvin/github-action-runners-mux/config"
 )
 
 // RunnerProcess represents an actively running Runner.Listener instance.

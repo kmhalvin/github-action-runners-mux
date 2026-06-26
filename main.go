@@ -8,10 +8,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kmhalvin/multi-listener-runner/config"
-	"github.com/kmhalvin/multi-listener-runner/manager"
-	"github.com/kmhalvin/multi-listener-runner/monitor"
-	"github.com/kmhalvin/multi-listener-runner/reaper"
+	"github.com/kmhalvin/github-action-runners-mux/config"
+	"github.com/kmhalvin/github-action-runners-mux/manager"
+	"github.com/kmhalvin/github-action-runners-mux/monitor"
+	"github.com/kmhalvin/github-action-runners-mux/reaper"
 )
 
 const DrainTimeout = 30 * time.Minute

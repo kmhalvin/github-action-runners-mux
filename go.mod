@@ -1,4 +1,4 @@
-module github.com/kmhalvin/multi-listener-runner
+module github.com/kmhalvin/github-action-runners-mux
 
 go 1.26.3
 
