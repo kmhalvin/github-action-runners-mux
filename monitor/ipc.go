@@ -22,14 +22,16 @@ type IPCMonitor struct {
 	activeWorker int
 	activePGID   int
 	workerMutex  sync.Mutex
+	workerSem    chan struct{}
 	onLock       func(pgid int)
 	onUnlock     func(pgid int)
 }
 
 func NewIPCMonitor(onLock, onUnlock func(pgid int)) (*IPCMonitor, error) {
 	return &IPCMonitor{
-		onLock:   onLock,
-		onUnlock: onUnlock,
+		workerSem: make(chan struct{}, 1),
+		onLock:    onLock,
+		onUnlock:  onUnlock,
 	}, nil
 }
 
@@ -86,16 +88,17 @@ func (m *IPCMonitor) handleConnection(conn *net.UnixConn) {
 		return
 	}
 
-	log.Printf("[Mutex] Received LOCK from Shim (PID: %d, PGID: %d). Engaging lock...", msg.PID, msg.PGID)
+	// Wait in queue (blocks if another worker is active)
+	log.Printf("[Mutex] Shim (PID: %d, PGID: %d) waiting in queue for available slot...", msg.PID, msg.PGID)
+	m.workerSem <- struct{}{}
+	defer func() { <-m.workerSem }()
+
+	log.Printf("[Mutex] Shim (PID: %d, PGID: %d) acquired slot. Engaging lock...", msg.PID, msg.PGID)
 
 	m.workerMutex.Lock()
-	if m.activeWorker == 0 {
-		m.activeWorker = msg.PID
-		m.activePGID = msg.PGID
-		m.onLock(msg.PGID)
-	} else {
-		log.Printf("[Mutex] Warning: Another shim requested lock while worker (PID: %d) is active!", m.activeWorker)
-	}
+	m.activeWorker = msg.PID
+	m.activePGID = msg.PGID
+	m.onLock(msg.PGID)
 	m.workerMutex.Unlock()
 
 	// Send ACK to shim so it can execute syscall.Exec
