@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/kmhalvin/github-action-runners-mux/config"
-	"github.com/kmhalvin/github-action-runners-mux/manager"
+	"github.com/kmhalvin/github-action-runners-mux/multiplexer"
 	"github.com/kmhalvin/github-action-runners-mux/orchestrator"
 )
 
@@ -35,7 +35,7 @@ func main() {
 	config.SyncRunners(cfg)
 
 	// 4. Initialize Manager
-	mgr := manager.NewManager()
+	mux := multiplexer.NewMultiplexer()
 
 	// 4. Initialize Orchestrator
 	maxWorkers := cfg.MaxWorkers
@@ -50,7 +50,7 @@ func main() {
 		warmWorkers = maxWorkers
 	}
 
-	orch, err := orchestrator.NewOrchestrator(mgr, maxWorkers, warmWorkers)
+	orch, err := orchestrator.NewOrchestrator(mux, cfg.MaxWorkers, cfg.WarmWorkers)
 	if err != nil {
 		log.Fatalf("Fatal: failed to initialize Orchestrator: %v", err)
 	}
@@ -64,17 +64,17 @@ func main() {
 		// Ensure the shim processes can access the socket
 		os.Chmod(sockPath, 0777)
 
-		mux := http.NewServeMux()
-		mux.HandleFunc("/api/v1/worker/allocate", orch.HandleAllocate)
+		muxServer := http.NewServeMux()
+		muxServer.HandleFunc("/api/v1/worker/allocate", orch.HandleAllocate)
 		
 		log.Printf("[Proxy] Orchestrator listening on unix socket %s for Shim allocations...", sockPath)
-		if err := http.Serve(listener, mux); err != nil {
+		if err := http.Serve(listener, muxServer); err != nil {
 			log.Fatalf("Fatal: orchestrator server failed: %v", err)
 		}
 	}()
 
 	// 5. Start Runners
-	if err := mgr.StartAll(cfg); err != nil {
+	if err := mux.StartAll(cfg); err != nil {
 		log.Fatalf("Fatal: %v", err)
 	}
 
@@ -93,7 +93,7 @@ func main() {
 	doneCh := make(chan struct{})
 
 	go func() {
-		drainAndCleanup(mgr)
+		drainAndCleanup(mux)
 		close(doneCh)
 	}()
 
@@ -102,18 +102,13 @@ func main() {
 		log.Printf("Graceful shutdown completed.")
 	case <-ctx.Done():
 		log.Printf("Hard drain timeout reached (30m). Escalating to SIGKILL.")
-		forceKillAll(mgr)
+		forceKillAll(mux)
 	}
 }
 
-func drainAndCleanup(mgr *manager.Manager) {
-	runners := mgr.GetRunners()
-
-	// Send SIGINT to all runners. 
-	// The actions/runner agent handles this natively:
-	// - Idle listeners exit immediately.
-	// - Active listeners wait for their remote worker to finish, then exit.
-	for _, rp := range runners {
+func drainAndCleanup(mux *multiplexer.Multiplexer) {
+	log.Println("Shutting down Multiplexer and gracefully stopping all Listeners...")
+	for _, rp := range mux.GetListeners() {
 		if rp.Active {
 			log.Printf("[%s] Sending SIGINT (Graceful Shutdown) and SIGCONT...", rp.Config.Name)
 			syscall.Kill(-rp.PGID, syscall.SIGCONT) // Wake it up so it processes SIGINT if it was frozen
@@ -121,17 +116,17 @@ func drainAndCleanup(mgr *manager.Manager) {
 		}
 	}
 
-	// Wait for all runners to exit
-	for _, rp := range runners {
+	// Wait for all listeners to exit
+	for _, rp := range mux.GetListeners() {
 		if rp.Active {
 			_ = rp.Cmd.Wait()
 		}
 	}
 }
 
-func forceKillAll(mgr *manager.Manager) {
-	runners := mgr.GetRunners()
-	for _, rp := range runners {
+func forceKillAll(mux *multiplexer.Multiplexer) {
+	listeners := mux.GetListeners()
+	for _, rp := range listeners {
 		if rp.Active {
 			log.Printf("[%s] Force killing...", rp.Config.Name)
 			syscall.Kill(rp.Cmd.Process.Pid, syscall.SIGKILL) // Kill the Listener

@@ -5,12 +5,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-# Build the proxy with CGO disabled
+# Build multiplexer, worker-shim, and worker-launcher
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o proxy .
-# Build the shim
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o shim ./cmd/shim
-# Build the worker-shim
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o worker-shim ./cmd/worker-shim
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o worker-launcher ./cmd/worker-launcher
 
 # Runtime image built on Ubuntu 22.04 (jammy)
 FROM ubuntu:22.04
@@ -124,8 +122,8 @@ RUN curl -L -o actions.tar.gz \
 
 # ── Copy our proxy and shims ─────────────────────────────────────────────────
 COPY --from=builder /app/proxy /usr/local/bin/proxy
-COPY --from=builder /app/shim /usr/local/bin/shim
 COPY --from=builder /app/worker-shim /usr/local/bin/worker-shim
+COPY --from=builder /app/worker-launcher /usr/local/bin/worker-launcher
 
 WORKDIR /opt/runners
 ENTRYPOINT ["/usr/bin/dumb-init", "--", "/usr/local/bin/proxy", "/etc/multi-listener/config.yaml"]

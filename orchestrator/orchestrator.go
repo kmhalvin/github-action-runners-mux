@@ -14,7 +14,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/kmhalvin/github-action-runners-mux/api"
-	"github.com/kmhalvin/github-action-runners-mux/manager"
+	"github.com/kmhalvin/github-action-runners-mux/multiplexer"
 )
 
 type WarmWorker struct {
@@ -23,10 +23,10 @@ type WarmWorker struct {
 }
 
 type Orchestrator struct {
-	mgr               *manager.Manager
+	mux               *multiplexer.Multiplexer
 	dockerCli         *client.Client
 	mutex             sync.Mutex
-	activeRunners     map[api.RunnerName]int // runnerName -> active count
+	activeListeners   map[api.RunnerName]int // runnerName -> active count
 	maxWorkers        int
 	warmWorkersConfig int
 	isPaused          bool
@@ -37,16 +37,16 @@ type Orchestrator struct {
 	deadWarmWorkers   map[string]bool           // ContainerID -> true if died while warm
 }
 
-func NewOrchestrator(mgr *manager.Manager, maxWorkers int, warmWorkers int) (*Orchestrator, error) {
+func NewOrchestrator(mux *multiplexer.Multiplexer, maxWorkers int, warmWorkers int) (*Orchestrator, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create docker client: %w", err)
 	}
 
 	o := &Orchestrator{
-		mgr:               mgr,
+		mux:               mux,
 		dockerCli:         cli,
-		activeRunners:     make(map[api.RunnerName]int),
+		activeListeners:   make(map[api.RunnerName]int),
 		maxWorkers:        maxWorkers,
 		warmWorkersConfig: warmWorkers,
 		isPaused:          false,
@@ -66,7 +66,7 @@ func (o *Orchestrator) evaluateCapacity() {
 	defer o.mutex.Unlock()
 
 	totalAssigned := 0
-	for _, count := range o.activeRunners {
+	for _, count := range o.activeListeners {
 		totalAssigned += count
 	}
 
@@ -77,18 +77,18 @@ func (o *Orchestrator) evaluateCapacity() {
 		o.isPaused = true
 
 		var active []api.RunnerName
-		for rName, count := range o.activeRunners {
+		for rName, count := range o.activeListeners {
 			if count > 0 {
 				active = append(active, rName)
 			}
 		}
 
-		// We call the manager natively!
-		o.mgr.LockOthers(active)
+		// We call the multiplexer natively!
+		o.mux.LockOthers(active)
 	} else if totalAssigned < o.maxWorkers && o.isPaused {
 		log.Printf("[Orchestrator] CAPACITY FREED. Unfreezing listeners...")
 		o.isPaused = false
-		o.mgr.UnlockOthers()
+		o.mux.UnlockOthers()
 	}
 }
 
@@ -117,7 +117,7 @@ if [ "$START_DOCKER_SERVICE" = "true" ]; then
 	echo "Starting Docker-in-Docker service..."
 	sudo service docker start || service docker start
 fi
-exec worker-shim
+exec worker-launcher
 			`},
 		},
 		&container.HostConfig{
@@ -230,7 +230,7 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 
 			// Assign it
 			o.workerAssignments[ww.ContainerID] = payload.RunnerName
-			o.activeRunners[payload.RunnerName]++
+			o.activeListeners[payload.RunnerName]++
 			o.mutex.Unlock()
 
 			o.evaluateCapacity()
@@ -255,7 +255,7 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 
 			o.mutex.Lock()
 			o.workerAssignments[ww.ContainerID] = payload.RunnerName
-			o.activeRunners[payload.RunnerName]++
+			o.activeListeners[payload.RunnerName]++
 			o.mutex.Unlock()
 
 			go o.monitorWorker(ww.ContainerID)
@@ -293,7 +293,7 @@ func (o *Orchestrator) monitorWorker(containerID string) {
 		o.deadWarmWorkers[containerID] = true
 	} else {
 		// Died while active
-		o.activeRunners[assignedRunner]--
+		o.activeListeners[assignedRunner]--
 	}
 	o.mutex.Unlock()
 

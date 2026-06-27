@@ -1,124 +1,121 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
-	"sync"
+	"path/filepath"
+	"strconv"
 
 	"github.com/kmhalvin/github-action-runners-mux/api"
 )
 
-type WorkerShim struct {
-	exitCode int
-	finished bool
-	mutex    sync.Mutex
-	cond     *sync.Cond
-}
+const sockPath = "/tmp/multiplexer.sock"
 
-func NewWorkerShim() *WorkerShim {
-	ws := &WorkerShim{}
-	ws.cond = sync.NewCond(&ws.mutex)
-	return ws
-}
 
-func (ws *WorkerShim) handleWait(w http.ResponseWriter, r *http.Request) {
-	ws.mutex.Lock()
-	for !ws.finished {
-		ws.cond.Wait()
-	}
-	exitCode := ws.exitCode
-	ws.mutex.Unlock()
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(api.WaitResponse{ExitCode: exitCode})
-}
 
 func main() {
-	shim := NewWorkerShim()
-
-	// HTTP Server for /wait
-	go func() {
-		http.HandleFunc("/wait", shim.handleWait)
-		log.Println("Worker Shim HTTP server listening on :9001")
-		if err := http.ListenAndServe(":9001", nil); err != nil {
-			log.Fatalf("HTTP server failed: %v", err)
-		}
-	}()
-
-	// TCP Server for Pipe Proxy
-	listener, err := net.Listen("tcp", "0.0.0.0:9000")
-	if err != nil {
-		log.Fatalf("TCP listen failed: %v", err)
+	if len(os.Args) < 4 {
+		log.Fatalf("[Worker Shim] Expected at least 4 arguments, got %d", len(os.Args))
 	}
-	log.Println("Worker Shim TCP server listening on :9000")
 
-	// Accept a single connection
-	conn, err := listener.Accept()
+	fdOutStr := os.Args[2]
+	fdInStr := os.Args[3]
+
+	fdOut, err := strconv.Atoi(fdOutStr)
 	if err != nil {
-		log.Fatalf("TCP accept failed: %v", err)
+		log.Fatalf("[Worker Shim] Invalid fdOut: %v", err)
+	}
+	fdIn, err := strconv.Atoi(fdInStr)
+	if err != nil {
+		log.Fatalf("[Worker Shim] Invalid fdIn: %v", err)
+	}
+
+	// Read Controller URL from environment, default to localhost for local testing
+	execPath, _ := os.Executable()
+	runnerName := filepath.Base(filepath.Dir(filepath.Dir(execPath)))
+	
+	reqBody, _ := json.Marshal(api.AllocateRequest{RunnerName: api.RunnerName(runnerName)})
+
+	log.Printf("[Worker Shim:%s] Requesting ephemeral worker from orchestrator...", runnerName)
+
+	client := http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return net.Dial("unix", sockPath)
+			},
+		},
+	}
+
+	resp, err := client.Post("http://unix/api/v1/worker/allocate", "application/json", bytes.NewBuffer(reqBody))
+	if err != nil {
+		log.Fatalf("[Worker Shim] Failed to allocate worker: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		log.Fatalf("[Worker Shim] Controller rejected allocation: %s", string(body))
+	}
+
+	var allocResponse api.AllocateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&allocResponse); err != nil {
+		log.Fatalf("[Worker Shim] Failed to decode allocation response: %v", err)
+	}
+
+	workerIP := allocResponse.WorkerIP
+	log.Printf("[Worker Shim] Worker allocated at IP: %s", workerIP)
+
+	// 2. Connect to Worker TCP Stream
+	conn, err := net.Dial("tcp", fmt.Sprintf("%s:9000", workerIP))
+	if err != nil {
+		log.Fatalf("[Worker Shim] Failed to connect to worker pipe stream: %v", err)
 	}
 	defer conn.Close()
 
-	log.Println("TCP connection established with Listener Shim.")
+	// 3. Map File Descriptors
+	// pipeHandleOut is where Runner.Listener writes, so it's a Read fd for the Shim.
+	listenerWriteWorkerReadFile := os.NewFile(uintptr(fdOut), "pipeHandleOut")
+	// pipeHandleIn is where Runner.Listener reads, so it's a Write fd for the Shim.
+	listenerReadWorkerWriteFile := os.NewFile(uintptr(fdIn), "pipeHandleIn")
 
-	// Create local pipes
-	workerRead, shimWrite, err := os.Pipe()
-	if err != nil {
-		log.Fatalf("Pipe creation failed: %v", err)
-	}
-	shimRead, workerWrite, err := os.Pipe()
-	if err != nil {
-		log.Fatalf("Pipe creation failed: %v", err)
-	}
+	errChan := make(chan error, 2)
 
-	// Stream TCP bidirectionally to/from local pipes
+	// Stream 1: Listener -> TCP (Worker Read)
 	go func() {
-		io.Copy(shimWrite, conn)
-		shimWrite.Close()
-	}()
-	go func() {
-		io.Copy(conn, shimRead)
-		conn.Close()
+		_, err := io.Copy(conn, listenerWriteWorkerReadFile)
+		errChan <- err
 	}()
 
-	// Spawn Runner.Worker directly from the baked-in image directory
-	realWorkerPath := "/actions-runner/bin/Runner.Worker"
-	
-	cmd := exec.Command(realWorkerPath, "spawnclient", "3", "4")
-	// FD 3 will be workerRead, FD 4 will be workerWrite
-	cmd.ExtraFiles = []*os.File{workerRead, workerWrite}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Stream 2: TCP (Worker Write) -> Listener
+	go func() {
+		_, err := io.Copy(listenerReadWorkerWriteFile, conn)
+		errChan <- err
+	}()
 
-	log.Printf("Spawning %s...", realWorkerPath)
-	if err := cmd.Start(); err != nil {
-		log.Fatalf("Failed to start worker: %v", err)
-	}
+	// Wait for streams to close (usually when worker exits)
+	<-errChan
 
-	// Wait for worker to finish
-	err = cmd.Wait()
-	
-	shim.mutex.Lock()
+	// 4. Get Exit Code from Worker HTTP
+	log.Printf("[Worker Shim] Streams closed. Fetching exit code from worker...")
+	exitResp, err := http.Get(fmt.Sprintf("http://%s:9001/wait", workerIP))
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			shim.exitCode = exitError.ExitCode()
-		} else {
-			shim.exitCode = 1
-		}
-	} else {
-		shim.exitCode = 0
+		log.Fatalf("[Worker Shim] Failed to get exit code: %v", err)
 	}
-	shim.finished = true
-	shim.cond.Broadcast()
-	shim.mutex.Unlock()
+	defer exitResp.Body.Close()
 
-	log.Printf("Worker finished with exit code: %d", shim.exitCode)
-	
-	// Keep process alive for a few seconds so Listener Shim can fetch the exit code
-	// Usually the HTTP /wait handler holds the connection, so once it returns, it's done.
+	var exitData api.WaitResponse
+	if err := json.NewDecoder(exitResp.Body).Decode(&exitData); err != nil {
+		log.Fatalf("[Worker Shim] Failed to decode exit code: %v", err)
+	}
+
+	exitCode := exitData.ExitCode
+	log.Printf("[Worker Shim] Remote worker finished with exit code %d. Exiting...", exitCode)
+	os.Exit(exitCode)
 }

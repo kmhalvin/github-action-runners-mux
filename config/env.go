@@ -35,7 +35,7 @@ func InitializeEnvironment(cfg *RunnerConfig) error {
 		}
 
 		// Shim Injection
-		shimSrc := "/usr/local/bin/shim"
+		shimSrc := "/usr/local/bin/worker-shim"
 		workerPath := filepath.Join(cfg.Dir, "bin", "Runner.Worker")
 		workerRealPath := filepath.Join(cfg.Dir, "bin", "Runner.Worker.real")
 

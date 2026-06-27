@@ -1,4 +1,4 @@
-package manager
+package multiplexer
 
 import (
 	"bufio"
@@ -14,8 +14,8 @@ import (
 	"github.com/kmhalvin/github-action-runners-mux/config"
 )
 
-// RunnerProcess represents an actively running Runner.Listener instance.
-type RunnerProcess struct {
+// ListenerProcess represents a managed GitHub Actions Runner Listener
+type ListenerProcess struct {
 	Config *config.RunnerConfig
 	Cmd    *exec.Cmd
 	PGID   int
@@ -23,19 +23,19 @@ type RunnerProcess struct {
 	Active bool
 }
 
-type Manager struct {
-	runners map[api.RunnerName]*RunnerProcess
-	mutex   sync.RWMutex
+type Multiplexer struct {
+	listeners map[api.RunnerName]*ListenerProcess
+	mutex     sync.RWMutex
 }
 
-func NewManager() *Manager {
-	return &Manager{
-		runners: make(map[api.RunnerName]*RunnerProcess),
+func NewMultiplexer() *Multiplexer {
+	return &Multiplexer{
+		listeners: make(map[api.RunnerName]*ListenerProcess),
 	}
 }
 
 // StartAll initializes the environment and starts all listeners concurrently.
-func (m *Manager) StartAll(cfg *config.Config) error {
+func (m *Multiplexer) StartAll(cfg *config.Config) error {
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(cfg.Runners))
 
@@ -64,7 +64,7 @@ func (m *Manager) StartAll(cfg *config.Config) error {
 	return nil
 }
 
-func (m *Manager) startRunner(cfg *config.RunnerConfig) error {
+func (m *Multiplexer) startRunner(cfg *config.RunnerConfig) error {
 	log.Printf("[%s] Starting Listener via Go command...", cfg.Name)
 	// We no longer need run.sh wrappers. We execute the listener natively.
 	cmd := exec.Command("./bin/Runner.Listener", "run", "--startuptype", "service")
@@ -92,7 +92,7 @@ func (m *Manager) startRunner(cfg *config.RunnerConfig) error {
 		pgid = cmd.Process.Pid
 	}
 
-	rp := &RunnerProcess{
+	rp := &ListenerProcess{
 		Config: cfg,
 		Cmd:    cmd,
 		PGID:   pgid,
@@ -100,7 +100,7 @@ func (m *Manager) startRunner(cfg *config.RunnerConfig) error {
 	}
 
 	m.mutex.Lock()
-	m.runners[cfg.Name] = rp
+	m.listeners[cfg.Name] = rp
 	m.mutex.Unlock()
 
 	log.Printf("[%s] Started listener (PID: %d, PGID: %d)", cfg.Name, cmd.Process.Pid, pgid)
@@ -124,7 +124,7 @@ func (m *Manager) startRunner(cfg *config.RunnerConfig) error {
 	return nil
 }
 
-func (m *Manager) streamLogs(name api.RunnerName, r io.Reader, level string) {
+func (m *Multiplexer) streamLogs(name api.RunnerName, r io.Reader, level string) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -137,7 +137,7 @@ func (m *Manager) streamLogs(name api.RunnerName, r io.Reader, level string) {
 }
 
 // LockOthers sends SIGSTOP to all runners except the ones in activeRunners.
-func (m *Manager) LockOthers(activeRunners []api.RunnerName) {
+func (m *Multiplexer) LockOthers(activeRunners []api.RunnerName) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -146,7 +146,7 @@ func (m *Manager) LockOthers(activeRunners []api.RunnerName) {
 		activeMap[name] = true
 	}
 
-	for name, rp := range m.runners {
+	for name, rp := range m.listeners {
 		if rp.Active && !activeMap[name] {
 			log.Printf("[Mutex] Sending SIGSTOP to %s (PGID: %d)", name, rp.PGID)
 			if err := syscall.Kill(-rp.PGID, syscall.SIGSTOP); err != nil {
@@ -157,11 +157,11 @@ func (m *Manager) LockOthers(activeRunners []api.RunnerName) {
 }
 
 // UnlockOthers sends SIGCONT to all frozen runners.
-func (m *Manager) UnlockOthers() {
+func (m *Multiplexer) UnlockOthers() {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
-	for name, rp := range m.runners {
+	for name, rp := range m.listeners {
 		if rp.Active {
 			log.Printf("[Mutex] Sending SIGCONT to %s (PGID: %d)", name, rp.PGID)
 			if err := syscall.Kill(-rp.PGID, syscall.SIGCONT); err != nil {
@@ -171,13 +171,13 @@ func (m *Manager) UnlockOthers() {
 	}
 }
 
-// GetRunners returns all tracked runner processes.
-func (m *Manager) GetRunners() []*RunnerProcess {
+// GetListeners returns all tracked listener processes.
+func (m *Multiplexer) GetListeners() []*ListenerProcess {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	var runners []*RunnerProcess
-	for _, r := range m.runners {
-		runners = append(runners, r)
+	var listeners []*ListenerProcess
+	for _, rp := range m.listeners {
+		listeners = append(listeners, rp)
 	}
-	return runners
+	return listeners
 }
