@@ -1,89 +1,121 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
-	"syscall"
+	"strconv"
 )
 
-const SocketPath = "/tmp/multiplexer.sock"
+const sockPath = "/tmp/multiplexer.sock"
 
-type LockMessage struct {
-	Action string `json:"action"`
-	PID    int    `json:"pid"`
-	PGID   int    `json:"pgid"`
+type AllocateResponse struct {
+	WorkerIP string `json:"worker_ip"`
 }
 
 func main() {
-	// 1. Connect to the Proxy IPC Server
-	conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: SocketPath, Net: "unix"})
+	if len(os.Args) < 4 {
+		log.Fatalf("[Shim] Expected at least 4 arguments, got %d", len(os.Args))
+	}
+
+	fdOutStr := os.Args[2]
+	fdInStr := os.Args[3]
+
+	fdOut, err := strconv.Atoi(fdOutStr)
 	if err != nil {
-		log.Fatalf("[Shim] Failed to connect to proxy IPC: %v", err)
+		log.Fatalf("[Shim] Invalid fdOut: %v", err)
 	}
-	// Note: We deliberately DO NOT defer conn.Close() here, because we want it to survive syscall.Exec
-
-	// 2. Clear the O_CLOEXEC flag on the socket so the worker inherits it
-	sysConn, err := conn.SyscallConn()
+	fdIn, err := strconv.Atoi(fdInStr)
 	if err != nil {
-		log.Fatalf("[Shim] Failed to get syscall conn: %v", err)
+		log.Fatalf("[Shim] Invalid fdIn: %v", err)
 	}
 
-	err = sysConn.Control(func(fd uintptr) {
-		// Get current flags
-		flags, _, errno := syscall.Syscall(syscall.SYS_FCNTL, fd, syscall.F_GETFD, 0)
-		if errno != 0 {
-			log.Fatalf("[Shim] Failed to get fd flags: %v", errno)
-		}
-		// Clear FD_CLOEXEC flag (usually 1)
-		flags &^= syscall.FD_CLOEXEC
-		// Set flags back
-		_, _, errno = syscall.Syscall(syscall.SYS_FCNTL, fd, syscall.F_SETFD, flags)
-		if errno != 0 {
-			log.Fatalf("[Shim] Failed to set fd flags: %v", errno)
-		}
-	})
+	// Read Controller URL from environment, default to localhost for local testing
+	execPath, _ := os.Executable()
+	runnerName := filepath.Base(filepath.Dir(filepath.Dir(execPath)))
+	
+	reqBody := fmt.Sprintf(`{"runner_name": "%s"}`, runnerName)
+
+	log.Printf("[Shim:%s] Requesting ephemeral worker from orchestrator...", runnerName)
+
+	client := http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return net.Dial("unix", sockPath)
+			},
+		},
+	}
+
+	resp, err := client.Post("http://unix/api/v1/worker/allocate", "application/json", bytes.NewBuffer([]byte(reqBody)))
 	if err != nil {
-		log.Fatalf("[Shim] Syscall control error: %v", err)
+		log.Fatalf("[Shim] Failed to allocate worker: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		log.Fatalf("[Shim] Controller rejected allocation: %s", string(body))
 	}
 
-	pid := os.Getpid()
-	pgid, _ := syscall.Getpgid(pid)
-
-	// 3. Send LOCK request
-	msg := LockMessage{
-		Action: "LOCK",
-		PID:    pid,
-		PGID:   pgid,
-	}
-	payload, _ := json.Marshal(msg)
-	payload = append(payload, '\n')
-	if _, err := conn.Write(payload); err != nil {
-		log.Fatalf("[Shim] Failed to send lock message: %v", err)
+	var allocResponse AllocateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&allocResponse); err != nil {
+		log.Fatalf("[Shim] Failed to decode allocation response: %v", err)
 	}
 
-	// 4. Wait for ACK from proxy
-	reader := bufio.NewReader(conn)
-	ack, err := reader.ReadString('\n')
-	if err != nil || ack != "ACK\n" {
-		log.Fatalf("[Shim] Failed to receive ACK from proxy: %v", err)
-	}
+	workerIP := allocResponse.WorkerIP
+	log.Printf("[Shim] Worker allocated at IP: %s", workerIP)
 
-	// 5. Handover execution to Runner.Worker.real
-	binDir := filepath.Dir(os.Args[0])
-	realWorkerPath := filepath.Join(binDir, "Runner.Worker.real")
-
-	// Adjust os.Args[0] to point to the real worker
-	args := os.Args
-	args[0] = realWorkerPath
-
-	// syscall.Exec replaces the current process image.
-	// The inherited open socket remains open in the new process.
-	err = syscall.Exec(realWorkerPath, args, os.Environ())
+	// 2. Connect to Worker TCP Stream
+	conn, err := net.Dial("tcp", fmt.Sprintf("%s:9000", workerIP))
 	if err != nil {
-		log.Fatalf("[Shim] syscall.Exec failed: %v", err)
+		log.Fatalf("[Shim] Failed to connect to worker pipe stream: %v", err)
 	}
+	defer conn.Close()
+
+	// 3. Map File Descriptors
+	// pipeHandleOut is where Runner.Listener writes, so it's a Read fd for the Shim.
+	listenerWriteWorkerReadFile := os.NewFile(uintptr(fdOut), "pipeHandleOut")
+	// pipeHandleIn is where Runner.Listener reads, so it's a Write fd for the Shim.
+	listenerReadWorkerWriteFile := os.NewFile(uintptr(fdIn), "pipeHandleIn")
+
+	errChan := make(chan error, 2)
+
+	// Stream 1: Listener -> TCP (Worker Read)
+	go func() {
+		_, err := io.Copy(conn, listenerWriteWorkerReadFile)
+		errChan <- err
+	}()
+
+	// Stream 2: TCP (Worker Write) -> Listener
+	go func() {
+		_, err := io.Copy(listenerReadWorkerWriteFile, conn)
+		errChan <- err
+	}()
+
+	// Wait for streams to close (usually when worker exits)
+	<-errChan
+
+	// 4. Get Exit Code from Worker HTTP
+	log.Printf("[Shim] Streams closed. Fetching exit code from worker...")
+	exitResp, err := http.Get(fmt.Sprintf("http://%s:9001/wait", workerIP))
+	if err != nil {
+		log.Fatalf("[Shim] Failed to get exit code: %v", err)
+	}
+	defer exitResp.Body.Close()
+
+	var exitData map[string]int
+	if err := json.NewDecoder(exitResp.Body).Decode(&exitData); err != nil {
+		log.Fatalf("[Shim] Failed to decode exit code: %v", err)
+	}
+
+	exitCode := exitData["exit_code"]
+	log.Printf("[Shim] Remote worker finished with exit code %d. Exiting...", exitCode)
+	os.Exit(exitCode)
 }

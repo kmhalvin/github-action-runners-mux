@@ -9,6 +9,7 @@ services:
     # Ensure Docker's stop signal allows the 30-minute graceful drain
     stop_grace_period: 30m
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./config.sample.yaml:/etc/multi-listener/config.yaml:ro
       - runner-data:/opt/runners
 

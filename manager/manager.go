@@ -136,13 +136,18 @@ func (m *Manager) streamLogs(name string, r io.Reader, level string) {
 	}
 }
 
-// LockOthers sends SIGSTOP to all runners except the one matching activePGID.
-func (m *Manager) LockOthers(activePGID int) {
+// LockOthers sends SIGSTOP to all runners except the ones in activeRunners.
+func (m *Manager) LockOthers(activeRunners []string) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
+	activeMap := make(map[string]bool)
+	for _, name := range activeRunners {
+		activeMap[name] = true
+	}
+
 	for name, rp := range m.runners {
-		if rp.Active && rp.PGID != activePGID {
+		if rp.Active && !activeMap[name] {
 			log.Printf("[Mutex] Sending SIGSTOP to %s (PGID: %d)", name, rp.PGID)
 			if err := syscall.Kill(-rp.PGID, syscall.SIGSTOP); err != nil {
 				log.Printf("[Mutex] Failed to freeze %s: %v", name, err)
@@ -152,12 +157,12 @@ func (m *Manager) LockOthers(activePGID int) {
 }
 
 // UnlockOthers sends SIGCONT to all frozen runners.
-func (m *Manager) UnlockOthers(activePGID int) {
+func (m *Manager) UnlockOthers() {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
 	for name, rp := range m.runners {
-		if rp.Active && rp.PGID != activePGID {
+		if rp.Active {
 			log.Printf("[Mutex] Sending SIGCONT to %s (PGID: %d)", name, rp.PGID)
 			if err := syscall.Kill(-rp.PGID, syscall.SIGCONT); err != nil {
 				log.Printf("[Mutex] Failed to unfreeze %s: %v", name, err)

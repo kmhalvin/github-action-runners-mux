@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,9 +12,11 @@ import (
 
 	"github.com/kmhalvin/github-action-runners-mux/config"
 	"github.com/kmhalvin/github-action-runners-mux/manager"
-	"github.com/kmhalvin/github-action-runners-mux/monitor"
+	"github.com/kmhalvin/github-action-runners-mux/orchestrator"
 	"github.com/kmhalvin/github-action-runners-mux/reaper"
 )
+
+const sockPath = "/tmp/multiplexer.sock"
 
 const DrainTimeout = 30 * time.Minute
 
@@ -33,12 +37,29 @@ func main() {
 	// 3. Initialize Manager
 	mgr := manager.NewManager()
 
-	// 4. Initialize IPC Monitor (Mutex)
-	ipcMon, err := monitor.NewIPCMonitor(mgr.LockOthers, mgr.UnlockOthers)
+	// 4. Initialize Orchestrator (max 5 workers for now)
+	orch, err := orchestrator.NewOrchestrator(mgr, 5)
 	if err != nil {
-		log.Fatalf("Fatal: failed to start IPC Monitor: %v", err)
+		log.Fatalf("Fatal: failed to initialize Orchestrator: %v", err)
 	}
-	go ipcMon.Start()
+
+	go func() {
+		os.Remove(sockPath)
+		listener, err := net.Listen("unix", sockPath)
+		if err != nil {
+			log.Fatalf("Fatal: failed to listen on unix socket: %v", err)
+		}
+		// Ensure the shim processes can access the socket
+		os.Chmod(sockPath, 0777)
+
+		mux := http.NewServeMux()
+		mux.HandleFunc("/api/v1/worker/allocate", orch.HandleAllocate)
+		
+		log.Printf("[Proxy] Orchestrator listening on unix socket %s for Shim allocations...", sockPath)
+		if err := http.Serve(listener, mux); err != nil {
+			log.Fatalf("Fatal: orchestrator server failed: %v", err)
+		}
+	}()
 
 	// 5. Start Runners
 	if err := mgr.StartAll(cfg); err != nil {
@@ -52,8 +73,6 @@ func main() {
 	sig := <-sigCh
 	log.Printf("Received signal %v, initiating graceful shutdown...", sig)
 
-	activePGID := ipcMon.GetActivePGID()
-
 	// Drain logic
 	// Create a context for the hard timeout
 	ctx, cancel := context.WithTimeout(context.Background(), DrainTimeout)
@@ -62,7 +81,7 @@ func main() {
 	doneCh := make(chan struct{})
 
 	go func() {
-		drainAndCleanup(mgr, activePGID)
+		drainAndCleanup(mgr)
 		close(doneCh)
 	}()
 
@@ -75,38 +94,24 @@ func main() {
 	}
 }
 
-func drainAndCleanup(mgr *manager.Manager, activePGID int) {
+func drainAndCleanup(mgr *manager.Manager) {
 	runners := mgr.GetRunners()
 
-	// Send SIGTERM to idle runners first
+	// Send SIGINT to all runners. 
+	// The actions/runner agent handles this natively:
+	// - Idle listeners exit immediately.
+	// - Active listeners wait for their remote worker to finish, then exit.
 	for _, rp := range runners {
-		if rp.PGID != activePGID && rp.Active {
-			log.Printf("[%s] Idle runner. Sending SIGTERM and SIGCONT...", rp.Config.Name)
-			syscall.Kill(-rp.PGID, syscall.SIGTERM)
-			syscall.Kill(-rp.PGID, syscall.SIGCONT) // Wake it up so it processes SIGTERM
+		if rp.Active {
+			log.Printf("[%s] Sending SIGINT (Graceful Shutdown) and SIGCONT...", rp.Config.Name)
+			syscall.Kill(-rp.PGID, syscall.SIGCONT) // Wake it up so it processes SIGINT if it was frozen
+			syscall.Kill(-rp.PGID, syscall.SIGINT)
 		}
 	}
 
-	// Now wait for the active worker to finish, if any
-	if activePGID != 0 {
-		var activeRP *manager.RunnerProcess
-		for _, rp := range runners {
-			if rp.PGID == activePGID {
-				activeRP = rp
-				break
-			}
-		}
-
-		if activeRP != nil && activeRP.Active {
-			log.Printf("[%s] Active runner detected. Waiting for job to finish before terminating...", activeRP.Config.Name)
-			_ = activeRP.Cmd.Wait()
-			log.Printf("[%s] Active runner exited.", activeRP.Config.Name)
-		}
-	}
-
-	// Wait for all remaining runners to exit and run cleanup
+	// Wait for all runners to exit and run cleanup
 	for _, rp := range runners {
-		if rp.Active && rp.PGID != activePGID {
+		if rp.Active {
 			_ = rp.Cmd.Wait()
 		}
 		// Aggressively clean up _work dir

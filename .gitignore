@@ -1,3 +1,4 @@
 .agents/
 /proxy
 /shim
+/worker-shim

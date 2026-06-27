@@ -1,4 +1,4 @@
-FROM golang:1.22 AS builder
+FROM golang:latest AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -9,6 +9,8 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o proxy .
 # Build the shim
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o shim ./cmd/shim
+# Build the worker-shim
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o worker-shim ./cmd/worker-shim
 
 # Use myoung34/github-runner as the base to inherit all dependencies natively
 FROM myoung34/github-runner:ubuntu-jammy
@@ -16,6 +18,7 @@ FROM myoung34/github-runner:ubuntu-jammy
 # Override their default ENTRYPOINT to just start our proxy.
 COPY --from=builder /app/proxy /usr/local/bin/proxy
 COPY --from=builder /app/shim /usr/local/bin/shim
+COPY --from=builder /app/worker-shim /usr/local/bin/worker-shim
 
 # The base image provides /actions-runner which we will use as a template.
 # Our proxy will copy this to /opt/runners/* dynamically.
