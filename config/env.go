@@ -91,9 +91,4 @@ func InitializeEnvironment(cfg *RunnerConfig) error {
 	return nil
 }
 
-// CleanupWorkDir aggressively cleans up the _work directory to maintain isolation.
-func CleanupWorkDir(cfg *RunnerConfig) error {
-	workDir := filepath.Join(cfg.Dir, "_work")
-	log.Printf("[%s] Cleaning up _work directory: %s", cfg.Name, workDir)
-	return os.RemoveAll(workDir)
-}
+

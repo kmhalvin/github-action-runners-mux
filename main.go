@@ -112,13 +112,11 @@ func drainAndCleanup(mgr *manager.Manager) {
 		}
 	}
 
-	// Wait for all runners to exit and run cleanup
+	// Wait for all runners to exit
 	for _, rp := range runners {
 		if rp.Active {
 			_ = rp.Cmd.Wait()
 		}
-		// Aggressively clean up _work dir
-		_ = config.CleanupWorkDir(rp.Config)
 	}
 }
 
@@ -130,6 +128,5 @@ func forceKillAll(mgr *manager.Manager) {
 			syscall.Kill(-rp.PGID, syscall.SIGKILL)
 			syscall.Kill(-rp.PGID, syscall.SIGCONT)
 		}
-		_ = config.CleanupWorkDir(rp.Config)
 	}
 }

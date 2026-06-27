@@ -140,9 +140,6 @@ exec worker-shim
 			Privileged:  startDocker,
 			// Ensure Docker daemon cleans it up if the proxy gets hard killed
 			AutoRemove:  true,
-			Binds: []string{
-				"github-action-runners-mux_runner-data:/opt/runners",
-			},
 		},
 		&network.NetworkingConfig{},
 		nil,

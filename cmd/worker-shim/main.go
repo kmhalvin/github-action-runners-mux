@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 )
 
@@ -85,9 +84,8 @@ func main() {
 		conn.Close()
 	}()
 
-	// Spawn Runner.Worker.real
-	binDir := filepath.Dir(os.Args[0])
-	realWorkerPath := filepath.Join(binDir, "Runner.Worker.real")
+	// Spawn Runner.Worker directly from the baked-in image directory
+	realWorkerPath := "/actions-runner/bin/Runner.Worker"
 	
 	cmd := exec.Command(realWorkerPath, "spawnclient", "3", "4")
 	// FD 3 will be workerRead, FD 4 will be workerWrite
