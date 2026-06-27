@@ -59,7 +59,7 @@ func InitializeEnvironment(cfg *RunnerConfig) error {
 	args := []string{
 		"--url", cfg.URL,
 		"--token", cfg.Token,
-		"--name", cfg.Name,
+		"--name", string(cfg.Name),
 		"--work", "_work",
 		"--unattended",
 		"--replace",

@@ -12,13 +12,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/kmhalvin/github-action-runners-mux/api"
 )
 
 const sockPath = "/tmp/multiplexer.sock"
 
-type AllocateResponse struct {
-	WorkerIP string `json:"worker_ip"`
-}
+
 
 func main() {
 	if len(os.Args) < 4 {
@@ -41,7 +41,7 @@ func main() {
 	execPath, _ := os.Executable()
 	runnerName := filepath.Base(filepath.Dir(filepath.Dir(execPath)))
 	
-	reqBody := fmt.Sprintf(`{"runner_name": "%s"}`, runnerName)
+	reqBody, _ := json.Marshal(api.AllocateRequest{RunnerName: api.RunnerName(runnerName)})
 
 	log.Printf("[Shim:%s] Requesting ephemeral worker from orchestrator...", runnerName)
 
@@ -53,7 +53,7 @@ func main() {
 		},
 	}
 
-	resp, err := client.Post("http://unix/api/v1/worker/allocate", "application/json", bytes.NewBuffer([]byte(reqBody)))
+	resp, err := client.Post("http://unix/api/v1/worker/allocate", "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
 		log.Fatalf("[Shim] Failed to allocate worker: %v", err)
 	}
@@ -64,7 +64,7 @@ func main() {
 		log.Fatalf("[Shim] Controller rejected allocation: %s", string(body))
 	}
 
-	var allocResponse AllocateResponse
+	var allocResponse api.AllocateResponse
 	if err := json.NewDecoder(resp.Body).Decode(&allocResponse); err != nil {
 		log.Fatalf("[Shim] Failed to decode allocation response: %v", err)
 	}
@@ -110,12 +110,12 @@ func main() {
 	}
 	defer exitResp.Body.Close()
 
-	var exitData map[string]int
+	var exitData api.WaitResponse
 	if err := json.NewDecoder(exitResp.Body).Decode(&exitData); err != nil {
 		log.Fatalf("[Shim] Failed to decode exit code: %v", err)
 	}
 
-	exitCode := exitData["exit_code"]
+	exitCode := exitData.ExitCode
 	log.Printf("[Shim] Remote worker finished with exit code %d. Exiting...", exitCode)
 	os.Exit(exitCode)
 }

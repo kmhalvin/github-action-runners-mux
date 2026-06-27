@@ -4,16 +4,17 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/kmhalvin/github-action-runners-mux/api"
 	"gopkg.in/yaml.v3"
 )
 
 type RunnerConfig struct {
-	Name   string `yaml:"name"`
-	URL    string `yaml:"url"`
-	Token  string `yaml:"token"`
-	Dir    string `yaml:"dir"`
-	Labels string `yaml:"labels,omitempty"`
-	Group  string `yaml:"group,omitempty"`
+	Name   api.RunnerName `yaml:"name"`
+	URL    string         `yaml:"url"`
+	Token  string         `yaml:"token"`
+	Dir    string         `yaml:"dir"`
+	Labels string         `yaml:"labels,omitempty"`
+	Group  string         `yaml:"group,omitempty"`
 }
 
 type Config struct {

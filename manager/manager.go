@@ -10,6 +10,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/kmhalvin/github-action-runners-mux/api"
 	"github.com/kmhalvin/github-action-runners-mux/config"
 )
 
@@ -23,13 +24,13 @@ type RunnerProcess struct {
 }
 
 type Manager struct {
-	runners map[string]*RunnerProcess
+	runners map[api.RunnerName]*RunnerProcess
 	mutex   sync.RWMutex
 }
 
 func NewManager() *Manager {
 	return &Manager{
-		runners: make(map[string]*RunnerProcess),
+		runners: make(map[api.RunnerName]*RunnerProcess),
 	}
 }
 
@@ -123,7 +124,7 @@ func (m *Manager) startRunner(cfg *config.RunnerConfig) error {
 	return nil
 }
 
-func (m *Manager) streamLogs(name string, r io.Reader, level string) {
+func (m *Manager) streamLogs(name api.RunnerName, r io.Reader, level string) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -136,11 +137,11 @@ func (m *Manager) streamLogs(name string, r io.Reader, level string) {
 }
 
 // LockOthers sends SIGSTOP to all runners except the ones in activeRunners.
-func (m *Manager) LockOthers(activeRunners []string) {
+func (m *Manager) LockOthers(activeRunners []api.RunnerName) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
-	activeMap := make(map[string]bool)
+	activeMap := make(map[api.RunnerName]bool)
 	for _, name := range activeRunners {
 		activeMap[name] = true
 	}

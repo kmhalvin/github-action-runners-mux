@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+
+	"github.com/kmhalvin/github-action-runners-mux/api"
 )
 
 type WorkerShim struct {
@@ -33,7 +35,7 @@ func (ws *WorkerShim) handleWait(w http.ResponseWriter, r *http.Request) {
 	ws.mutex.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{"exit_code": exitCode})
+	json.NewEncoder(w).Encode(api.WaitResponse{ExitCode: exitCode})
 }
 
 func main() {

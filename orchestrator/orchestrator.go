@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/kmhalvin/github-action-runners-mux/api"
 	"github.com/kmhalvin/github-action-runners-mux/manager"
 )
 
@@ -25,15 +26,15 @@ type Orchestrator struct {
 	mgr               *manager.Manager
 	dockerCli         *client.Client
 	mutex             sync.Mutex
-	activeRunners     map[string]int // runnerName -> active count
+	activeRunners     map[api.RunnerName]int // runnerName -> active count
 	maxWorkers        int
 	warmWorkersConfig int
 	isPaused          bool
 	workerSem         chan struct{} // Counting semaphore
 	warmPool          chan *WarmWorker
 	bootingCount      int
-	workerAssignments map[string]string // ContainerID -> RunnerName (empty means warm)
-	deadWarmWorkers   map[string]bool   // ContainerID -> true if died while warm
+	workerAssignments map[string]api.RunnerName // ContainerID -> RunnerName (empty means warm)
+	deadWarmWorkers   map[string]bool           // ContainerID -> true if died while warm
 }
 
 func NewOrchestrator(mgr *manager.Manager, maxWorkers int, warmWorkers int) (*Orchestrator, error) {
@@ -45,13 +46,13 @@ func NewOrchestrator(mgr *manager.Manager, maxWorkers int, warmWorkers int) (*Or
 	o := &Orchestrator{
 		mgr:               mgr,
 		dockerCli:         cli,
-		activeRunners:     make(map[string]int),
+		activeRunners:     make(map[api.RunnerName]int),
 		maxWorkers:        maxWorkers,
 		warmWorkersConfig: warmWorkers,
 		isPaused:          false,
 		workerSem:         make(chan struct{}, maxWorkers),
 		warmPool:          make(chan *WarmWorker, maxWorkers),
-		workerAssignments: make(map[string]string),
+		workerAssignments: make(map[string]api.RunnerName),
 		deadWarmWorkers:   make(map[string]bool),
 	}
 
@@ -75,7 +76,7 @@ func (o *Orchestrator) evaluateCapacity() {
 		log.Printf("[Orchestrator] MAX CAPACITY REACHED. Freezing idle listeners...")
 		o.isPaused = true
 
-		var active []string
+		var active []api.RunnerName
 		for rName, count := range o.activeRunners {
 			if count > 0 {
 				active = append(active, rName)
@@ -210,9 +211,7 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var payload struct {
-		RunnerName string `json:"runner_name"`
-	}
+	var payload api.AllocateRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "Invalid payload", http.StatusBadRequest)
 		return
@@ -236,8 +235,8 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 
 			o.evaluateCapacity()
 
-			json.NewEncoder(w).Encode(map[string]string{
-				"worker_ip": ww.IPAddress,
+			json.NewEncoder(w).Encode(api.AllocateResponse{
+				WorkerIP: ww.IPAddress,
 			})
 			return
 
@@ -262,8 +261,8 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 			go o.monitorWorker(ww.ContainerID)
 			o.evaluateCapacity()
 
-			json.NewEncoder(w).Encode(map[string]string{
-				"worker_ip": ww.IPAddress,
+			json.NewEncoder(w).Encode(api.AllocateResponse{
+				WorkerIP: ww.IPAddress,
 			})
 			return
 		}
