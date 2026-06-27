@@ -58,3 +58,14 @@ The following dependencies must be maintained independently:
 - We use `ubuntu:22.04` (jammy, LTS until April 2027).
 - **Action:** When migrating to a newer Ubuntu LTS (e.g., 24.04 noble), update the Docker CE APT source line and verify all package names still exist.
 
+### 8. Ephemeral Worker Isolation & Cleanup
+- **Constraint:** Ephemeral worker containers MUST NEVER mount the host's `/opt/runners` volume. Doing so exposes the `.credentials` files of all registered runners to the CI job, creating a severe vulnerability.
+- **Cleanup Mechanism:** The worker container's `_work` directory is generated strictly inside the container's ephemeral filesystem layer (even though the path is `/opt/runners/.../_work`). Ephemeral cleanup is entirely dependent on Docker auto-removing the container (`AutoRemove: true`). Do not implement manual host-side cleanup scripts for `_work`.
+
+### 9. Process Management & Signal Routing
+- **Graceful Shutdown:** To gracefully drain the runners, `SIGINT` MUST be sent directly to the `Runner.Listener` process ID (`Cmd.Process.Pid`), NEVER to the process group (`-PGID`). Killing the process group instantly kills the `shim` proxy, which severs the TCP connection and immediately aborts any active CI jobs.
+- **Zombie Reaping:** The `os/exec` package automatically reaps its direct children when `cmd.Wait()` is called. Never implement background `syscall.Wait4(-1)` loops in Go, as this introduces severe race conditions with `cmd.Wait()`. Reparented orphans are safely and exclusively reaped by `dumb-init` acting as PID 1 in the containers.
+
+### 10. Config Sync & Deregistration
+- **Constraint:** The official runner does not automatically deregister itself when removed from a local config file.
+- **Mechanism:** The proxy caches registration tokens in `.mux-meta.json` inside the runner's directory upon registration. When a runner is removed from `config.yaml`, the orchestrator uses this cached token to execute `./config.sh remove --token <token>` before physically deleting the directory. This synchronization logic must be preserved to prevent ghost runners in GitHub.
