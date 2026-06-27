@@ -24,8 +24,9 @@ type ListenerProcess struct {
 }
 
 type Multiplexer struct {
-	listeners map[api.RunnerName]*ListenerProcess
-	mutex     sync.RWMutex
+	listeners    map[api.RunnerName]*ListenerProcess
+	mutex        sync.RWMutex
+	globalPaused bool
 }
 
 func NewMultiplexer() *Multiplexer {
@@ -101,6 +102,14 @@ func (m *Multiplexer) startRunner(cfg *config.RunnerConfig) error {
 
 	m.mutex.Lock()
 	m.listeners[cfg.Name] = rp
+	
+	// If the system is globally paused at max capacity, instantly freeze this new listener
+	if m.globalPaused {
+		log.Printf("[%s] System is at max capacity. Instantly freezing new listener (PGID: %d)", cfg.Name, pgid)
+		if err := syscall.Kill(-pgid, syscall.SIGSTOP); err != nil {
+			log.Printf("[%s] Failed to freeze new listener: %v", cfg.Name, err)
+		}
+	}
 	m.mutex.Unlock()
 
 	log.Printf("[%s] Started listener (PID: %d, PGID: %d)", cfg.Name, cmd.Process.Pid, pgid)
@@ -136,10 +145,11 @@ func (m *Multiplexer) streamLogs(name api.RunnerName, r io.Reader, level string)
 	}
 }
 
-// LockOthers sends SIGSTOP to all runners except the ones in activeRunners.
 func (m *Multiplexer) LockOthers(activeRunners []api.RunnerName) {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	
+	m.globalPaused = true
 
 	activeMap := make(map[api.RunnerName]bool)
 	for _, name := range activeRunners {
@@ -156,10 +166,11 @@ func (m *Multiplexer) LockOthers(activeRunners []api.RunnerName) {
 	}
 }
 
-// UnlockOthers sends SIGCONT to all frozen runners.
 func (m *Multiplexer) UnlockOthers() {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	
+	m.globalPaused = false
 
 	for name, rp := range m.listeners {
 		if rp.Active {

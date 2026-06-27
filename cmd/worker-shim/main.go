@@ -18,8 +18,6 @@ import (
 
 const sockPath = "/tmp/multiplexer.sock"
 
-
-
 func main() {
 	if len(os.Args) < 4 {
 		log.Fatalf("[Worker Shim] Expected at least 4 arguments, got %d", len(os.Args))
@@ -40,7 +38,7 @@ func main() {
 	// Read Orchestrator URL from environment, default to localhost for local testing
 	execPath, _ := os.Executable()
 	runnerName := filepath.Base(filepath.Dir(filepath.Dir(execPath)))
-	
+
 	reqBody, _ := json.Marshal(api.AllocateRequest{RunnerName: api.RunnerName(runnerName)})
 
 	log.Printf("[Worker Shim:%s] Requesting ephemeral worker from orchestrator...", runnerName)

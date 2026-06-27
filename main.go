@@ -42,15 +42,9 @@ func main() {
 	if maxWorkers <= 0 {
 		maxWorkers = 5 // Default
 	}
-	warmWorkers := cfg.WarmWorkers
-	if warmWorkers < 0 {
-		warmWorkers = 0
-	}
-	if warmWorkers > maxWorkers {
-		warmWorkers = maxWorkers
-	}
+	warmWorkers := min(max(cfg.WarmWorkers, 0), maxWorkers)
 
-	orch, err := orchestrator.NewOrchestrator(mux, cfg.MaxWorkers, cfg.WarmWorkers)
+	orch, err := orchestrator.NewOrchestrator(mux, maxWorkers, warmWorkers)
 	if err != nil {
 		log.Fatalf("Fatal: failed to initialize Orchestrator: %v", err)
 	}
@@ -61,12 +55,12 @@ func main() {
 		if err != nil {
 			log.Fatalf("Fatal: failed to listen on unix socket: %v", err)
 		}
-		// Ensure the shim processes can access the socket
+		// Ensure the Worker Shim processes can access the socket
 		os.Chmod(sockPath, 0777)
 
 		muxServer := http.NewServeMux()
 		muxServer.HandleFunc("/api/v1/worker/allocate", orch.HandleAllocate)
-		
+
 		log.Printf("[Orchestrator] Listening on unix socket %s for Worker Shim allocations...", sockPath)
 		if err := http.Serve(listener, muxServer); err != nil {
 			log.Fatalf("Fatal: orchestrator server failed: %v", err)
@@ -111,7 +105,7 @@ func drainAndCleanup(mux *multiplexer.Multiplexer) {
 	for _, rp := range mux.GetListeners() {
 		if rp.Active {
 			log.Printf("[%s] Sending SIGINT (Graceful Shutdown) and SIGCONT...", rp.Config.Name)
-			syscall.Kill(-rp.PGID, syscall.SIGCONT) // Wake it up so it processes SIGINT if it was frozen
+			syscall.Kill(-rp.PGID, syscall.SIGCONT)          // Wake it up so it processes SIGINT if it was frozen
 			syscall.Kill(rp.Cmd.Process.Pid, syscall.SIGINT) // Send SIGINT directly to the Listener, NOT the PGID
 		}
 	}
