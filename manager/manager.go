@@ -130,6 +130,9 @@ func (m *Manager) streamLogs(name string, r io.Reader, level string) {
 		// Prefix each log line with the runner name
 		fmt.Printf("[%s][%s] %s\n", name, level, strings.TrimSpace(line))
 	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("[%s] Error reading %s stream: %v", name, level, err)
+	}
 }
 
 // LockOthers sends SIGSTOP to all runners except the ones in activeRunners.

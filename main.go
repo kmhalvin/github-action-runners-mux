@@ -37,8 +37,20 @@ func main() {
 	// 4. Initialize Manager
 	mgr := manager.NewManager()
 
-	// 4. Initialize Orchestrator (max 5 workers for now)
-	orch, err := orchestrator.NewOrchestrator(mgr, 5)
+	// 4. Initialize Orchestrator
+	maxWorkers := cfg.MaxWorkers
+	if maxWorkers <= 0 {
+		maxWorkers = 5 // Default
+	}
+	warmWorkers := cfg.WarmWorkers
+	if warmWorkers < 0 {
+		warmWorkers = 0
+	}
+	if warmWorkers > maxWorkers {
+		warmWorkers = maxWorkers
+	}
+
+	orch, err := orchestrator.NewOrchestrator(mgr, maxWorkers, warmWorkers)
 	if err != nil {
 		log.Fatalf("Fatal: failed to initialize Orchestrator: %v", err)
 	}

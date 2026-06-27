@@ -17,7 +17,9 @@ type RunnerConfig struct {
 }
 
 type Config struct {
-	Runners []RunnerConfig `yaml:"runners"`
+	MaxWorkers  int            `yaml:"max_workers,omitempty"`
+	WarmWorkers int            `yaml:"warm_workers,omitempty"`
+	Runners     []RunnerConfig `yaml:"runners"`
 }
 
 func LoadConfig(path string) (*Config, error) {

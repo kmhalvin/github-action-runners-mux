@@ -16,40 +16,62 @@ import (
 	"github.com/kmhalvin/github-action-runners-mux/manager"
 )
 
-type Orchestrator struct {
-	mgr           *manager.Manager
-	dockerCli     *client.Client
-	mutex         sync.Mutex
-	activeRunners map[string]int // runnerName -> active count
-	maxWorkers    int
-	isPaused      bool
-	workerSem     chan struct{} // Counting semaphore
+type WarmWorker struct {
+	ContainerID string
+	IPAddress   string
 }
 
-func NewOrchestrator(mgr *manager.Manager, maxWorkers int) (*Orchestrator, error) {
+type Orchestrator struct {
+	mgr               *manager.Manager
+	dockerCli         *client.Client
+	mutex             sync.Mutex
+	activeRunners     map[string]int // runnerName -> active count
+	maxWorkers        int
+	warmWorkersConfig int
+	isPaused          bool
+	workerSem         chan struct{} // Counting semaphore
+	warmPool          chan *WarmWorker
+	bootingCount      int
+	workerAssignments map[string]string // ContainerID -> RunnerName (empty means warm)
+	deadWarmWorkers   map[string]bool   // ContainerID -> true if died while warm
+}
+
+func NewOrchestrator(mgr *manager.Manager, maxWorkers int, warmWorkers int) (*Orchestrator, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create docker client: %w", err)
 	}
 
-	return &Orchestrator{
-		mgr:           mgr,
-		dockerCli:     cli,
-		activeRunners: make(map[string]int),
-		maxWorkers:    maxWorkers,
-		isPaused:      false,
-		workerSem:     make(chan struct{}, maxWorkers),
-	}, nil
+	o := &Orchestrator{
+		mgr:               mgr,
+		dockerCli:         cli,
+		activeRunners:     make(map[string]int),
+		maxWorkers:        maxWorkers,
+		warmWorkersConfig: warmWorkers,
+		isPaused:          false,
+		workerSem:         make(chan struct{}, maxWorkers),
+		warmPool:          make(chan *WarmWorker, maxWorkers),
+		workerAssignments: make(map[string]string),
+		deadWarmWorkers:   make(map[string]bool),
+	}
+
+	go o.maintainPool()
+
+	return o, nil
 }
 
 func (o *Orchestrator) evaluateCapacity() {
 	o.mutex.Lock()
 	defer o.mutex.Unlock()
 
-	currentActive := len(o.workerSem)
-	log.Printf("[Orchestrator] Capacity evaluation: %d/%d workers active.", currentActive, o.maxWorkers)
+	totalAssigned := 0
+	for _, count := range o.activeRunners {
+		totalAssigned += count
+	}
 
-	if currentActive >= o.maxWorkers && !o.isPaused {
+	log.Printf("[Orchestrator] Capacity evaluation: %d/%d workers assigned to jobs. (Pool: %d warm, %d booting)", totalAssigned, o.maxWorkers, len(o.warmPool), o.bootingCount)
+
+	if totalAssigned >= o.maxWorkers && !o.isPaused {
 		log.Printf("[Orchestrator] MAX CAPACITY REACHED. Freezing idle listeners...")
 		o.isPaused = true
 
@@ -59,58 +81,17 @@ func (o *Orchestrator) evaluateCapacity() {
 				active = append(active, rName)
 			}
 		}
-		
+
 		// We call the manager natively!
 		o.mgr.LockOthers(active)
-	} else if currentActive < o.maxWorkers && o.isPaused {
+	} else if totalAssigned < o.maxWorkers && o.isPaused {
 		log.Printf("[Orchestrator] CAPACITY FREED. Unfreezing listeners...")
 		o.isPaused = false
 		o.mgr.UnlockOthers()
 	}
 }
 
-func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var payload struct {
-		RunnerName string `json:"runner_name"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Invalid payload", http.StatusBadRequest)
-		return
-	}
-
-	// Wait for capacity
-	select {
-	case <-r.Context().Done():
-		log.Printf("[Orchestrator] Request aborted by client while waiting for capacity.")
-		return
-	case o.workerSem <- struct{}{}:
-	}
-
-	capacityAcquired := true
-	
-	// Mark runner as active immediately
-	o.mutex.Lock()
-	o.activeRunners[payload.RunnerName]++
-	o.mutex.Unlock()
-
-	defer func() {
-		if capacityAcquired {
-			<-o.workerSem
-			o.mutex.Lock()
-			o.activeRunners[payload.RunnerName]--
-			o.mutex.Unlock()
-			o.evaluateCapacity()
-		}
-	}()
-
-	// Instantly evaluate capacity to freeze listeners if we hit max
-	o.evaluateCapacity()
-
+func (o *Orchestrator) startContainer() (*WarmWorker, error) {
 	containerName := fmt.Sprintf("worker-%d", time.Now().UnixNano())
 	ctx := context.Background()
 
@@ -142,9 +123,9 @@ exec worker-shim
 			// NetworkMode allows the worker to talk back to this proxy easily
 			NetworkMode: "github-action-runners-mux_default",
 			// DinD requires privileged mode
-			Privileged:  startDocker,
+			Privileged: startDocker,
 			// Ensure Docker daemon cleans it up if the proxy gets hard killed
-			AutoRemove:  true,
+			AutoRemove: true,
 		},
 		&network.NetworkingConfig{},
 		nil,
@@ -152,21 +133,18 @@ exec worker-shim
 	)
 	if err != nil {
 		log.Printf("[Orchestrator] Failed to create container: %v", err)
-		http.Error(w, "Failed to create worker container", http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
 	if err := o.dockerCli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		log.Printf("[Orchestrator] Failed to start container: %v", err)
-		http.Error(w, "Failed to start worker container", http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
 	inspect, err := o.dockerCli.ContainerInspect(ctx, resp.ID)
 	if err != nil {
 		log.Printf("[Orchestrator] Failed to inspect container: %v", err)
-		http.Error(w, "Failed to get worker IP", http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
 	var ipAddress string
@@ -175,28 +153,125 @@ exec worker-shim
 		break
 	}
 
-	log.Printf("[Orchestrator] Spawned worker container %s at %s for runner %s", containerName, ipAddress, payload.RunnerName)
+	log.Printf("[Orchestrator] Spawned worker container %s at %s", containerName, ipAddress)
 
-	// Transfer semaphore ownership to the monitorWorker goroutine
-	capacityAcquired = false
-	go o.monitorWorker(resp.ID, payload.RunnerName)
-
-	json.NewEncoder(w).Encode(map[string]string{
-		"worker_ip": ipAddress,
-	})
+	return &WarmWorker{
+		ContainerID: resp.ID,
+		IPAddress:   ipAddress,
+	}, nil
 }
 
-func (o *Orchestrator) monitorWorker(containerID string, runnerName string) {
-	ctx := context.Background()
-	
-	// Ensure we release capacity when the container dies
-	defer func() {
-		<-o.workerSem
+func (o *Orchestrator) maintainPool() {
+	for {
 		o.mutex.Lock()
-		o.activeRunners[runnerName]--
+		currentWarmAndBooting := len(o.warmPool) + o.bootingCount
+		needsWarm := o.warmWorkersConfig - currentWarmAndBooting
 		o.mutex.Unlock()
-		o.evaluateCapacity()
-	}()
+
+	ReplenishLoop:
+		for range needsWarm {
+			select {
+			case o.workerSem <- struct{}{}:
+				o.mutex.Lock()
+				o.bootingCount++
+				o.mutex.Unlock()
+
+				go func() {
+					ww, err := o.startContainer()
+
+					o.mutex.Lock()
+					o.bootingCount--
+					if err == nil {
+						o.workerAssignments[ww.ContainerID] = "" // Mark as warm
+					}
+					o.mutex.Unlock()
+
+					if err == nil {
+						o.warmPool <- ww
+						go o.monitorWorker(ww.ContainerID)
+					} else {
+						<-o.workerSem
+						o.evaluateCapacity()
+					}
+				}()
+			default:
+				// No capacity available to spawn warm workers
+				break ReplenishLoop
+			}
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload struct {
+		RunnerName string `json:"runner_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	for {
+		select {
+		case ww := <-o.warmPool:
+			o.mutex.Lock()
+			isDead := o.deadWarmWorkers[ww.ContainerID]
+			if isDead {
+				delete(o.deadWarmWorkers, ww.ContainerID)
+				o.mutex.Unlock()
+				continue // Container died while warm, grab another
+			}
+
+			// Assign it
+			o.workerAssignments[ww.ContainerID] = payload.RunnerName
+			o.activeRunners[payload.RunnerName]++
+			o.mutex.Unlock()
+
+			o.evaluateCapacity()
+
+			json.NewEncoder(w).Encode(map[string]string{
+				"worker_ip": ww.IPAddress,
+			})
+			return
+
+		case <-r.Context().Done():
+			log.Printf("[Orchestrator] Request aborted by client while waiting for capacity.")
+			return
+
+		case o.workerSem <- struct{}{}:
+			// Dynamically boot a container since warm pool is empty
+			ww, err := o.startContainer()
+			if err != nil {
+				<-o.workerSem
+				http.Error(w, "Failed to create worker container", http.StatusInternalServerError)
+				return
+			}
+
+			o.mutex.Lock()
+			o.workerAssignments[ww.ContainerID] = payload.RunnerName
+			o.activeRunners[payload.RunnerName]++
+			o.mutex.Unlock()
+
+			go o.monitorWorker(ww.ContainerID)
+			o.evaluateCapacity()
+
+			json.NewEncoder(w).Encode(map[string]string{
+				"worker_ip": ww.IPAddress,
+			})
+			return
+		}
+	}
+}
+
+func (o *Orchestrator) monitorWorker(containerID string) {
+	ctx := context.Background()
 
 	statusCh, errCh := o.dockerCli.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
 	select {
@@ -207,4 +282,21 @@ func (o *Orchestrator) monitorWorker(containerID string, runnerName string) {
 	case <-statusCh:
 		log.Printf("[Orchestrator] Worker container %s finished execution. AutoRemove will clean it up.", containerID)
 	}
+
+	<-o.workerSem
+
+	o.mutex.Lock()
+	assignedRunner := o.workerAssignments[containerID]
+	delete(o.workerAssignments, containerID)
+
+	if assignedRunner == "" {
+		// Died while warm
+		o.deadWarmWorkers[containerID] = true
+	} else {
+		// Died while active
+		o.activeRunners[assignedRunner]--
+	}
+	o.mutex.Unlock()
+
+	o.evaluateCapacity()
 }
