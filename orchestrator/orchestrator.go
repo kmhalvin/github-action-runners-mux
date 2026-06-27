@@ -120,11 +120,16 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 		workerEnv = append(workerEnv, "START_DOCKER_SERVICE=true")
 	}
 
+	workerImage := os.Getenv("WORKER_IMAGE")
+	if workerImage == "" {
+		workerImage = "github-action-runners-mux:latest"
+	}
+
 	resp, err := o.dockerCli.ContainerCreate(ctx,
 		&container.Config{
-			Image:      "github-action-runners-mux:latest",
+			Image:      workerImage,
 			Env:        workerEnv,
-			Entrypoint: []string{"/bin/bash", "-c"},
+			Entrypoint: []string{"/usr/bin/dumb-init", "--", "/bin/bash", "-c"},
 			Cmd: []string{`
 if [ "$START_DOCKER_SERVICE" = "true" ]; then
 	echo "Starting Docker-in-Docker service..."

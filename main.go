@@ -13,7 +13,6 @@ import (
 	"github.com/kmhalvin/github-action-runners-mux/config"
 	"github.com/kmhalvin/github-action-runners-mux/manager"
 	"github.com/kmhalvin/github-action-runners-mux/orchestrator"
-	"github.com/kmhalvin/github-action-runners-mux/reaper"
 )
 
 const sockPath = "/tmp/multiplexer.sock"
@@ -21,8 +20,6 @@ const sockPath = "/tmp/multiplexer.sock"
 const DrainTimeout = 30 * time.Minute
 
 func main() {
-	// 1. Start Zombie Reaper (PID 1 duties)
-	reaper.StartZombieReaper()
 
 	// 2. Load Configuration
 	cfgPath := "config.yaml"
@@ -108,7 +105,7 @@ func drainAndCleanup(mgr *manager.Manager) {
 		if rp.Active {
 			log.Printf("[%s] Sending SIGINT (Graceful Shutdown) and SIGCONT...", rp.Config.Name)
 			syscall.Kill(-rp.PGID, syscall.SIGCONT) // Wake it up so it processes SIGINT if it was frozen
-			syscall.Kill(-rp.PGID, syscall.SIGINT)
+			syscall.Kill(rp.Cmd.Process.Pid, syscall.SIGINT) // Send SIGINT directly to the Listener, NOT the PGID
 		}
 	}
 
@@ -125,8 +122,8 @@ func forceKillAll(mgr *manager.Manager) {
 	for _, rp := range runners {
 		if rp.Active {
 			log.Printf("[%s] Force killing...", rp.Config.Name)
-			syscall.Kill(-rp.PGID, syscall.SIGKILL)
-			syscall.Kill(-rp.PGID, syscall.SIGCONT)
+			syscall.Kill(rp.Cmd.Process.Pid, syscall.SIGKILL) // Kill the Listener
+			syscall.Kill(-rp.PGID, syscall.SIGCONT)           // Wake up the PGID so children can die
 		}
 	}
 }

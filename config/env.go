@@ -70,6 +70,10 @@ func InitializeEnvironment(cfg *RunnerConfig) error {
 		args = append(args, "--labels", cfg.Labels)
 	}
 
+	if cfg.Group != "" {
+		args = append(args, "--runnergroup", cfg.Group)
+	}
+
 	cmd := exec.Command("./config.sh", args...)
 	cmd.Dir = cfg.Dir
 	cmd.Stdout = os.Stdout

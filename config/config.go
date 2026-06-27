@@ -13,6 +13,7 @@ type RunnerConfig struct {
 	Token  string `yaml:"token"`
 	Dir    string `yaml:"dir"`
 	Labels string `yaml:"labels,omitempty"`
+	Group  string `yaml:"group,omitempty"`
 }
 
 type Config struct {
