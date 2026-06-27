@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -77,6 +78,14 @@ func InitializeEnvironment(cfg *RunnerConfig) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("[%s] failed to register runner: %w", cfg.Name, err)
 	}
+
+	// Save the token and URL for future deregistration (if the runner is removed from config)
+	meta := MuxMeta{
+		Token: cfg.Token,
+		URL:   cfg.URL,
+	}
+	metaData, _ := json.Marshal(meta)
+	_ = os.WriteFile(filepath.Join(cfg.Dir, ".mux-meta.json"), metaData, 0644)
 
 	log.Printf("[%s] Runner successfully registered", cfg.Name)
 	return nil

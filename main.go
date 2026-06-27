@@ -34,7 +34,10 @@ func main() {
 		log.Fatalf("Fatal: %v", err)
 	}
 
-	// 3. Initialize Manager
+	// 3. Reconcile Configuration (Deregister stale runners)
+	config.SyncRunners(cfg)
+
+	// 4. Initialize Manager
 	mgr := manager.NewManager()
 
 	// 4. Initialize Orchestrator (max 5 workers for now)
