@@ -15,7 +15,7 @@ The official GitHub Actions runner forces you to run a 1:1 mapping of runner pro
 
 The project intercepts the internal execution flow of the official GitHub `actions/runner` by separating the Listener from the Worker:
 1. **The Orchestrator (Proxy)**: A single Go process that boots and manages multiple lightweight `Runner.Listener` processes.
-2. **The Worker Shim**: When a job arrives, the Orchestrator spawns an ephemeral Docker container injecting a `worker-shim`. This shim creates anonymous pipes, launches the real `Runner.Worker` payload, and proxies the execution stream back to the Listener over a local TCP socket.
+2. **The Worker Launcher**: When a job arrives, the Orchestrator spawns an ephemeral Docker container injecting a `worker-launcher`. This launcher creates anonymous pipes, launches the real `Runner.Worker` payload, and proxies the execution stream back to the Listener over a local TCP socket.
 
 ## Getting Started
 

@@ -15,7 +15,7 @@ The `multi-listener-runner` project intercepts the internal execution flow of th
 - **Critical Integration:** The proxy relies entirely on how `Runner.Listener` invokes `Runner.Worker`.
 - We currently intercept: `Runner.Worker spawnclient <pipeHandleOut> <pipeHandleIn>`
 - **Verification:** Search the official runner source code (`src/Runner.Worker/Program.cs` and `src/Runner.Listener/JobDispatcher.cs`) for `"spawnclient"`. Verify that the worker still expects exactly 3 arguments and that `args[1]` is the input pipe and `args[2]` is the output pipe.
-- **Action:** If arguments change (e.g., new flags or configuration payload), `cmd/shim/main.go` and `cmd/worker-shim/main.go` must be updated to correctly proxy these new arguments.
+- **Action:** If arguments change (e.g., new flags or configuration payload), `cmd/worker-shim/main.go` and `cmd/worker-launcher/main.go` must be updated to correctly proxy these new arguments.
 
 ### 3. Anonymous Pipes & File Descriptors
 - The `worker-shim` binds its local pipes to File Descriptors `3` and `4` via `ExtraFiles`.
