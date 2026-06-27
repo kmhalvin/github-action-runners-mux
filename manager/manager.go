@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -69,9 +68,6 @@ func (m *Manager) startRunner(cfg *config.RunnerConfig) error {
 	// We no longer need run.sh wrappers. We execute the listener natively.
 	cmd := exec.Command("./bin/Runner.Listener", "run", "--startuptype", "service")
 	cmd.Dir = cfg.Dir
-
-	// myoung34 root override MUST be injected because we bypass run.sh
-	cmd.Env = append(os.Environ(), "RUNNER_ALLOW_RUNASROOT=1")
 
 	// We create a new Process Group so the SIGSTOP/SIGCONT works cleanly on the whole listener tree
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
