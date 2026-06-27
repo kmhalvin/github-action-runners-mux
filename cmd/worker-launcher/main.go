@@ -9,19 +9,23 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"time"
 
 	"github.com/kmhalvin/github-action-runners-mux/api"
 )
 
 type WorkerLauncher struct {
-	exitCode int
-	finished bool
-	mutex    sync.Mutex
-	cond     *sync.Cond
+	exitCode    int
+	finished    bool
+	mutex       sync.Mutex
+	cond        *sync.Cond
+	waitFetched chan struct{}
 }
 
 func NewWorkerLauncher() *WorkerLauncher {
-	ws := &WorkerLauncher{}
+	ws := &WorkerLauncher{
+		waitFetched: make(chan struct{}, 1),
+	}
 	ws.cond = sync.NewCond(&ws.mutex)
 	return ws
 }
@@ -36,6 +40,12 @@ func (ws *WorkerLauncher) handleWait(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(api.WaitResponse{ExitCode: exitCode})
+
+	// Signal that the host has fetched the response
+	select {
+	case ws.waitFetched <- struct{}{}:
+	default:
+	}
 }
 
 func main() {
@@ -119,6 +129,11 @@ func main() {
 
 	log.Printf("Worker finished with exit code: %d", shim.exitCode)
 	
-	// Keep process alive for a few seconds so Worker Shim can fetch the exit code
-	// Usually the HTTP /wait handler holds the connection, so once it returns, it's done.
+	// Robust shutdown: wait for the host to fetch the exit code, with a 5s fallback
+	select {
+	case <-shim.waitFetched:
+		log.Println("Exit code successfully delivered to host.")
+	case <-time.After(5 * time.Second):
+		log.Println("Timeout waiting for host to fetch exit code. Terminating.")
+	}
 }
