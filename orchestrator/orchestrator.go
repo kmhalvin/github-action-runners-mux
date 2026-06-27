@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -113,14 +114,30 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 	containerName := fmt.Sprintf("worker-%d", time.Now().UnixNano())
 	ctx := context.Background()
 
+	workerEnv := []string{}
+	startDocker := os.Getenv("WORKER_START_DOCKER_SERVICE") == "true"
+	if startDocker {
+		workerEnv = append(workerEnv, "START_DOCKER_SERVICE=true")
+	}
+
 	resp, err := o.dockerCli.ContainerCreate(ctx,
 		&container.Config{
 			Image:      "github-action-runners-mux:latest",
-			Entrypoint: []string{"worker-shim"},
+			Env:        workerEnv,
+			Entrypoint: []string{"/bin/bash", "-c"},
+			Cmd: []string{`
+if [ "$START_DOCKER_SERVICE" = "true" ]; then
+	echo "Starting Docker-in-Docker service..."
+	sudo service docker start || service docker start
+fi
+exec worker-shim
+			`},
 		},
 		&container.HostConfig{
 			// NetworkMode allows the worker to talk back to this proxy easily
 			NetworkMode: "github-action-runners-mux_default",
+			// DinD requires privileged mode
+			Privileged:  startDocker,
 			// Ensure Docker daemon cleans it up if the proxy gets hard killed
 			AutoRemove:  true,
 			Binds: []string{
