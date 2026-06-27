@@ -64,7 +64,7 @@ func main() {
 	}
 	defer conn.Close()
 
-	log.Println("TCP connection established with Listener Shim.")
+	log.Println("TCP connection established with Worker Shim.")
 
 	// Create local pipes
 	workerRead, shimWrite, err := os.Pipe()
@@ -119,6 +119,6 @@ func main() {
 
 	log.Printf("Worker finished with exit code: %d", shim.exitCode)
 	
-	// Keep process alive for a few seconds so Listener Shim can fetch the exit code
+	// Keep process alive for a few seconds so Worker Shim can fetch the exit code
 	// Usually the HTTP /wait handler holds the connection, so once it returns, it's done.
 }

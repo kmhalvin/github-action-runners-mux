@@ -34,7 +34,7 @@ func main() {
 	// 3. Reconcile Configuration (Deregister stale runners)
 	config.SyncRunners(cfg)
 
-	// 4. Initialize Manager
+	// 4. Initialize Multiplexer
 	mux := multiplexer.NewMultiplexer()
 
 	// 4. Initialize Orchestrator
@@ -67,7 +67,7 @@ func main() {
 		muxServer := http.NewServeMux()
 		muxServer.HandleFunc("/api/v1/worker/allocate", orch.HandleAllocate)
 		
-		log.Printf("[Proxy] Orchestrator listening on unix socket %s for Shim allocations...", sockPath)
+		log.Printf("[Orchestrator] Listening on unix socket %s for Worker Shim allocations...", sockPath)
 		if err := http.Serve(listener, muxServer); err != nil {
 			log.Fatalf("Fatal: orchestrator server failed: %v", err)
 		}

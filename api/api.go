@@ -1,6 +1,6 @@
 package api
 
-// Strongly typed RunnerName used across manager, orchestrator, and config
+// Strongly typed RunnerName used across multiplexer, orchestrator, and config
 type RunnerName string
 
 // AllocateRequest is the payload sent from the shim to the orchestrator to request capacity

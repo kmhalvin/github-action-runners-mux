@@ -37,7 +37,7 @@ func main() {
 		log.Fatalf("[Worker Shim] Invalid fdIn: %v", err)
 	}
 
-	// Read Controller URL from environment, default to localhost for local testing
+	// Read Orchestrator URL from environment, default to localhost for local testing
 	execPath, _ := os.Executable()
 	runnerName := filepath.Base(filepath.Dir(filepath.Dir(execPath)))
 	
@@ -61,7 +61,7 @@ func main() {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		log.Fatalf("[Worker Shim] Controller rejected allocation: %s", string(body))
+		log.Fatalf("[Worker Shim] Orchestrator rejected allocation: %s", string(body))
 	}
 
 	var allocResponse api.AllocateResponse
@@ -80,9 +80,9 @@ func main() {
 	defer conn.Close()
 
 	// 3. Map File Descriptors
-	// pipeHandleOut is where Runner.Listener writes, so it's a Read fd for the Shim.
+	// pipeHandleOut is where Runner.Listener writes, so it's a Read fd for the Worker Shim.
 	listenerWriteWorkerReadFile := os.NewFile(uintptr(fdOut), "pipeHandleOut")
-	// pipeHandleIn is where Runner.Listener reads, so it's a Write fd for the Shim.
+	// pipeHandleIn is where Runner.Listener reads, so it's a Write fd for the Worker Shim.
 	listenerReadWorkerWriteFile := os.NewFile(uintptr(fdIn), "pipeHandleIn")
 
 	errChan := make(chan error, 2)
