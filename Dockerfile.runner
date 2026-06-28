@@ -1,5 +1,5 @@
 ARG RUNNER_IMAGE_TAG="latest"
-FROM golang:1.22 AS builder
+FROM golang:1.26 AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./
