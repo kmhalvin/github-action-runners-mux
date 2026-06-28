@@ -17,8 +17,7 @@ import (
 )
 
 type Multiplexer struct {
-	orch  *Orchestrator
-	mutex sync.RWMutex
+	orch *Orchestrator
 }
 
 func NewMultiplexer(orch *Orchestrator) *Multiplexer {
