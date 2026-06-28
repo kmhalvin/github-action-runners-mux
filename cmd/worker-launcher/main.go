@@ -12,33 +12,33 @@ import (
 )
 
 type WorkerLauncher struct {
-	exitCode    int
-	finished    bool
-	started     bool
-	mutex       sync.Mutex
-	cond        *sync.Cond
+	exitCode int
+	finished bool
+	started  bool
+	mutex    sync.Mutex
+	cond     *sync.Cond
 }
 
 func NewWorkerLauncher() *WorkerLauncher {
-	ws := &WorkerLauncher{}
-	ws.cond = sync.NewCond(&ws.mutex)
-	return ws
+	wl := &WorkerLauncher{}
+	wl.cond = sync.NewCond(&wl.mutex)
+	return wl
 }
 
-func (ws *WorkerLauncher) handleStart(w http.ResponseWriter, r *http.Request) {
+func (wl *WorkerLauncher) handleStart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	ws.mutex.Lock()
-	if ws.started {
-		ws.mutex.Unlock()
+	wl.mutex.Lock()
+	if wl.started {
+		wl.mutex.Unlock()
 		http.Error(w, "Worker already started", http.StatusConflict)
 		return
 	}
-	ws.started = true
-	ws.mutex.Unlock()
+	wl.started = true
+	wl.mutex.Unlock()
 
 	var req api.StartRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -49,14 +49,14 @@ func (ws *WorkerLauncher) handleStart(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	// Launch worker asynchronously
-	go ws.runWorker(req.JITConfig)
+	go wl.runWorker(req.JITConfig)
 }
 
-func (ws *WorkerLauncher) runWorker(jitConfig string) {
+func (wl *WorkerLauncher) runWorker(jitConfig string) {
 	// The JIT config token contains an embedded .runner settings file with Ephemeral=true,
 	// so the listener will accept exactly one job and exit cleanly.
 	// We use run.sh which wraps Runner.Listener with proper signal routing.
-	cmd := exec.Command("/actions-runner/run.sh")
+	cmd := exec.Command("/home/runner/run.sh")
 	cmd.Env = append(os.Environ(), "ACTIONS_RUNNER_INPUT_JITCONFIG="+jitConfig)
 
 	cmd.Stdout = os.Stdout
@@ -65,7 +65,7 @@ func (ws *WorkerLauncher) runWorker(jitConfig string) {
 	log.Printf("Spawning run.sh with JIT config...")
 	if err := cmd.Start(); err != nil {
 		log.Printf("Failed to start listener with JIT config: %v", err)
-		ws.finish(1)
+		wl.finish(1)
 		return
 	}
 
@@ -73,28 +73,28 @@ func (ws *WorkerLauncher) runWorker(jitConfig string) {
 
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
-			ws.finish(exitError.ExitCode())
+			wl.finish(exitError.ExitCode())
 		} else {
-			ws.finish(1)
+			wl.finish(1)
 		}
 	} else {
-		ws.finish(0)
+		wl.finish(0)
 	}
 }
 
-func (ws *WorkerLauncher) finish(code int) {
-	ws.mutex.Lock()
-	ws.exitCode = code
-	ws.finished = true
-	ws.cond.Broadcast()
-	ws.mutex.Unlock()
+func (wl *WorkerLauncher) finish(code int) {
+	wl.mutex.Lock()
+	wl.exitCode = code
+	wl.finished = true
+	wl.cond.Broadcast()
+	wl.mutex.Unlock()
 	log.Printf("Worker finished with exit code: %d", code)
 }
 
 func main() {
-	shim := NewWorkerLauncher()
+	wl := NewWorkerLauncher()
 
-	http.HandleFunc("/start", shim.handleStart)
+	http.HandleFunc("/start", wl.handleStart)
 
 	server := &http.Server{Addr: ":9001"}
 	go func() {
@@ -105,13 +105,13 @@ func main() {
 	}()
 
 	// Wait for the worker to finish
-	shim.mutex.Lock()
-	for !shim.finished {
-		shim.cond.Wait()
+	wl.mutex.Lock()
+	for !wl.finished {
+		wl.cond.Wait()
 	}
-	exitCode := shim.exitCode
-	shim.mutex.Unlock()
-	
+	exitCode := wl.exitCode
+	wl.mutex.Unlock()
+
 	log.Printf("Exiting container with code: %d", exitCode)
 	os.Exit(exitCode)
 }

@@ -8,7 +8,7 @@ description: Verification checklist and maintenance guide for integrating with t
 The `multi-listener-runner` project integrates with the official GitHub Actions runner using the `actions/scaleset` library and JIT (Just-In-Time) configuration tokens. When the official runner version is updated, agents must verify the following integration points remain stable:
 
 ### 1. Binary Execution Paths
-- We rely on executing the official `/actions-runner/run.sh` wrapper script natively inside the Docker container.
+- We rely on executing the official `/home/runner/run.sh` wrapper script natively inside the Docker container.
 - **Verification:** Ensure the official release still ships with `run.sh` and it correctly passes environment variables down to the `Runner.Listener` binary.
 
 ### 2. JIT Configuration Command
