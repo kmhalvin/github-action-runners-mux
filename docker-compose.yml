@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   multi-runner-proxy:
     build: .
@@ -10,8 +8,7 @@ services:
     stop_grace_period: 30m
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./config.sample.yaml:/etc/multi-listener/config.yaml:ro
-      - runner-data:/opt/runners
-
-volumes:
-  runner-data:
+      - ./config.yaml:/etc/multi-listener/config.yaml:ro
+    # environment:
+    #   - WORKER_START_DOCKER_SERVICE=true  # Enable Docker-in-Docker for workers
+    #   - WORKER_IMAGE=github-action-runners-mux:latest  # Custom worker image (optional)

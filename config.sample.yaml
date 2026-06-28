@@ -1,27 +1,26 @@
+# Maximum concurrent ephemeral worker containers
 max_workers: 5
+
+# Number of pre-booted warm containers for zero-latency job starts
 warm_workers: 2
+
 runners:
+  # Repository-level runner
   - name: internal-backend
     url: https://github.com/my-org/backend
-    token: ABCDEFGHIJKLMNOPQRSTUVWXYZ123456
-    dir: /opt/runners/backend
+    pat: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    scale_set_name: backend-runners
 
+  # Organization-level runner
   - name: internal-frontend
-    url: https://github.com/my-org/frontend
-    token: ABCDEFGHIJKLMNOPQRSTUVWXYZ123456
-    dir: /opt/runners/frontend
+    url: https://github.com/my-org
+    pat: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    scale_set_name: frontend-runners
+    labels: linux,x64
 
+  # Enterprise-level runner with a custom runner group
   - name: enterprise-shared
-    url: https://github.com/my-enterprise
-    token: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
-    group: Default
-    labels:
-      - self-hosted
-      - linux
-      - x64
-
-  - name: public-open-source
-    url: https://github.com/my-org/open-source
-    token: ABCDEFGHIJKLMNOPQRSTUVWXYZ123456
-    dir: /opt/runners/open-source
-    labels: linux,x64,public-runner
+    url: https://github.com/enterprises/my-enterprise
+    pat: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    scale_set_name: enterprise-runners
+    group: production

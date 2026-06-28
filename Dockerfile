@@ -5,9 +5,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-# Build multiplexer, worker-shim, and worker-launcher
+# Build multiplexer and worker-launcher
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o proxy .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o worker-shim ./cmd/worker-shim
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o worker-launcher ./cmd/worker-launcher
 
 # Runtime image built on Ubuntu 22.04 (jammy)
@@ -120,9 +119,8 @@ RUN curl -L -o actions.tar.gz \
     && mkdir -p /_work \
     && chown -R runner /_work /actions-runner /opt/hostedtoolcache
 
-# ── Copy our proxy and shims ─────────────────────────────────────────────────
+# ── Copy our proxy and launcher ─────────────────────────────────────────────────
 COPY --from=builder /app/proxy /usr/local/bin/proxy
-COPY --from=builder /app/worker-shim /usr/local/bin/worker-shim
 COPY --from=builder /app/worker-launcher /usr/local/bin/worker-launcher
 
 WORKDIR /opt/runners

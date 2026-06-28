@@ -2,14 +2,11 @@ package main
 
 import (
 	"encoding/json"
-	"io"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"sync"
-	"time"
 
 	"github.com/kmhalvin/github-action-runners-mux/api"
 )
@@ -17,123 +14,103 @@ import (
 type WorkerLauncher struct {
 	exitCode    int
 	finished    bool
+	started     bool
 	mutex       sync.Mutex
 	cond        *sync.Cond
-	waitFetched chan struct{}
 }
 
 func NewWorkerLauncher() *WorkerLauncher {
-	ws := &WorkerLauncher{
-		waitFetched: make(chan struct{}, 1),
-	}
+	ws := &WorkerLauncher{}
 	ws.cond = sync.NewCond(&ws.mutex)
 	return ws
 }
 
-func (ws *WorkerLauncher) handleWait(w http.ResponseWriter, r *http.Request) {
-	ws.mutex.Lock()
-	for !ws.finished {
-		ws.cond.Wait()
+func (ws *WorkerLauncher) handleStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
-	exitCode := ws.exitCode
+
+	ws.mutex.Lock()
+	if ws.started {
+		ws.mutex.Unlock()
+		http.Error(w, "Worker already started", http.StatusConflict)
+		return
+	}
+	ws.started = true
 	ws.mutex.Unlock()
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(api.WaitResponse{ExitCode: exitCode})
-
-	// Signal that the host has fetched the response
-	select {
-	case ws.waitFetched <- struct{}{}:
-	default:
+	var req api.StartRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
+
+	w.WriteHeader(http.StatusOK)
+
+	// Launch worker asynchronously
+	go ws.runWorker(req.JITConfig)
+}
+
+func (ws *WorkerLauncher) runWorker(jitConfig string) {
+	// The actions/scaleset client expects JIT tokens to be passed to Runner.Listener 
+	// running in a special ephemeral mode.
+	listenerPath := "/actions-runner/bin/Runner.Listener"
+	cmd := exec.Command(listenerPath, "run", "--startuptype", "service", "--jitconfig", jitConfig)
+	
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	log.Printf("Spawning %s --jitconfig...", listenerPath)
+	if err := cmd.Start(); err != nil {
+		log.Printf("Failed to start listener with JIT config: %v", err)
+		ws.finish(1)
+		return
+	}
+
+	err := cmd.Wait()
+
+	if err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			ws.finish(exitError.ExitCode())
+		} else {
+			ws.finish(1)
+		}
+	} else {
+		ws.finish(0)
+	}
+}
+
+func (ws *WorkerLauncher) finish(code int) {
+	ws.mutex.Lock()
+	ws.exitCode = code
+	ws.finished = true
+	ws.cond.Broadcast()
+	ws.mutex.Unlock()
+	log.Printf("Worker finished with exit code: %d", code)
 }
 
 func main() {
 	shim := NewWorkerLauncher()
 
-	// HTTP Server for /wait
+	http.HandleFunc("/start", shim.handleStart)
+
+	server := &http.Server{Addr: ":9001"}
 	go func() {
-		http.HandleFunc("/wait", shim.handleWait)
 		log.Println("Worker Launcher HTTP server listening on :9001")
-		if err := http.ListenAndServe(":9001", nil); err != nil {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("HTTP server failed: %v", err)
 		}
 	}()
 
-	// TCP Server for Pipe Proxy
-	listener, err := net.Listen("tcp", "0.0.0.0:9000")
-	if err != nil {
-		log.Fatalf("TCP listen failed: %v", err)
-	}
-	log.Println("Worker Launcher TCP server listening on :9000")
-
-	// Accept a single connection
-	conn, err := listener.Accept()
-	if err != nil {
-		log.Fatalf("TCP accept failed: %v", err)
-	}
-	defer conn.Close()
-
-	log.Println("TCP connection established with Worker Shim.")
-
-	// Create local pipes
-	workerRead, shimWrite, err := os.Pipe()
-	if err != nil {
-		log.Fatalf("Pipe creation failed: %v", err)
-	}
-	shimRead, workerWrite, err := os.Pipe()
-	if err != nil {
-		log.Fatalf("Pipe creation failed: %v", err)
-	}
-
-	// Stream TCP bidirectionally to/from local pipes
-	go func() {
-		io.Copy(shimWrite, conn)
-		shimWrite.Close()
-	}()
-	go func() {
-		io.Copy(conn, shimRead)
-		conn.Close()
-	}()
-
-	// Spawn Runner.Worker directly from the baked-in image directory
-	realWorkerPath := "/actions-runner/bin/Runner.Worker"
-	
-	cmd := exec.Command(realWorkerPath, "spawnclient", "3", "4")
-	// FD 3 will be workerRead, FD 4 will be workerWrite
-	cmd.ExtraFiles = []*os.File{workerRead, workerWrite}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	log.Printf("Spawning %s...", realWorkerPath)
-	if err := cmd.Start(); err != nil {
-		log.Fatalf("Failed to start worker: %v", err)
-	}
-
-	// Wait for worker to finish
-	err = cmd.Wait()
-	
+	// Wait for the worker to finish
 	shim.mutex.Lock()
-	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			shim.exitCode = exitError.ExitCode()
-		} else {
-			shim.exitCode = 1
-		}
-	} else {
-		shim.exitCode = 0
+	for !shim.finished {
+		shim.cond.Wait()
 	}
-	shim.finished = true
-	shim.cond.Broadcast()
+	exitCode := shim.exitCode
 	shim.mutex.Unlock()
-
-	log.Printf("Worker finished with exit code: %d", shim.exitCode)
 	
-	// Robust shutdown: wait for the host to fetch the exit code, with a 5s fallback
-	select {
-	case <-shim.waitFetched:
-		log.Println("Exit code successfully delivered to host.")
-	case <-time.After(5 * time.Second):
-		log.Println("Timeout waiting for host to fetch exit code. Terminating.")
-	}
+	log.Printf("Exiting container with code: %d", exitCode)
+	os.Exit(exitCode)
 }

@@ -9,12 +9,12 @@ import (
 )
 
 type RunnerConfig struct {
-	Name   api.RunnerName `yaml:"name"`
-	URL    string         `yaml:"url"`
-	Token  string         `yaml:"token"`
-	Dir    string         `yaml:"dir"`
-	Labels string         `yaml:"labels,omitempty"`
-	Group  string         `yaml:"group,omitempty"`
+	Name         api.RunnerName `yaml:"name"`
+	URL          string         `yaml:"url"`
+	PAT          string         `yaml:"pat"`
+	ScaleSetName string         `yaml:"scale_set_name"`
+	Labels       string         `yaml:"labels,omitempty"`
+	Group        string         `yaml:"group,omitempty"`
 }
 
 type Config struct {
@@ -39,10 +39,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	for _, r := range cfg.Runners {
-		if r.Name == "" || r.URL == "" || r.Dir == "" {
-			return nil, fmt.Errorf("runner configuration is missing required fields (name, url, dir)")
+		if r.Name == "" || r.URL == "" || r.PAT == "" || r.ScaleSetName == "" {
+			return nil, fmt.Errorf("runner configuration is missing required fields (name, url, pat, scale_set_name)")
 		}
-		// Token can be empty if it's already registered, but let's warn or handle later if it's not registered
 	}
 
 	return &cfg, nil

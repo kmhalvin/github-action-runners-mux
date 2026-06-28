@@ -1,194 +1,211 @@
 package multiplexer
 
 import (
-	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"os/exec"
-	"strings"
+	"net/http"
 	"sync"
-	"syscall"
 
+	"github.com/actions/scaleset"
+	"github.com/actions/scaleset/listener"
+	"github.com/google/uuid"
 	"github.com/kmhalvin/github-action-runners-mux/api"
 	"github.com/kmhalvin/github-action-runners-mux/config"
+	"github.com/kmhalvin/github-action-runners-mux/orchestrator"
 )
 
-// ListenerProcess represents a managed GitHub Actions Runner Listener
-type ListenerProcess struct {
-	Config *config.RunnerConfig
-	Cmd    *exec.Cmd
-	PGID   int
-	Mutex  sync.Mutex
-	Active bool
-}
-
 type Multiplexer struct {
-	listeners    map[api.RunnerName]*ListenerProcess
-	mutex        sync.RWMutex
-	globalPaused bool
+	orch  *orchestrator.Orchestrator
+	mutex sync.RWMutex
 }
 
-func NewMultiplexer() *Multiplexer {
+func NewMultiplexer(orch *orchestrator.Orchestrator) *Multiplexer {
 	return &Multiplexer{
-		listeners: make(map[api.RunnerName]*ListenerProcess),
+		orch: orch,
 	}
 }
 
 // StartAll initializes the environment and starts all listeners concurrently.
-func (m *Multiplexer) StartAll(cfg *config.Config) error {
-	var wg sync.WaitGroup
-	errCh := make(chan error, len(cfg.Runners))
-
+func (m *Multiplexer) StartAll(ctx context.Context, cfg *config.Config, wg *sync.WaitGroup) error {
 	for i := range cfg.Runners {
 		rCfg := &cfg.Runners[i]
 		wg.Add(1)
 		go func(c *config.RunnerConfig) {
 			defer wg.Done()
-			if err := config.InitializeEnvironment(c); err != nil {
-				errCh <- fmt.Errorf("failed to initialize %s: %v", c.Name, err)
-				return
-			}
-			if err := m.startRunner(c); err != nil {
-				errCh <- fmt.Errorf("failed to start %s: %v", c.Name, err)
-			}
+			m.startRunner(ctx, c, cfg.MaxWorkers)
 		}(rCfg)
 	}
-
-	wg.Wait()
-	close(errCh)
-
-	if len(errCh) > 0 {
-		return <-errCh // Return the first error encountered
-	}
-
 	return nil
 }
 
-func (m *Multiplexer) startRunner(cfg *config.RunnerConfig) error {
-	log.Printf("[%s] Starting Listener via Go command...", cfg.Name)
-	// We no longer need run.sh wrappers. We execute the listener natively.
-	cmd := exec.Command("./bin/Runner.Listener", "run", "--startuptype", "service")
-	cmd.Dir = cfg.Dir
+func (m *Multiplexer) startRunner(ctx context.Context, cfg *config.RunnerConfig, maxWorkers int) {
+	log.Printf("[%s] Starting ScaleSet listener...", cfg.Name)
 
-	// We create a new Process Group so the SIGSTOP/SIGCONT works cleanly on the whole listener tree
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	stdout, err := cmd.StdoutPipe()
+	client, err := scaleset.NewClientWithPersonalAccessToken(scaleset.NewClientWithPersonalAccessTokenConfig{
+		GitHubConfigURL:     cfg.URL,
+		PersonalAccessToken: cfg.PAT,
+	})
 	if err != nil {
-		return err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
+		log.Printf("[%s] Failed to create scaleset client: %v", cfg.Name, err)
+		return
 	}
 
-	if err := cmd.Start(); err != nil {
-		return err
+	runnerGroup := cfg.Group
+	if runnerGroup == "" {
+		runnerGroup = scaleset.DefaultRunnerGroup
 	}
 
-	pgid, err := syscall.Getpgid(cmd.Process.Pid)
-	if err != nil {
-		// Fallback to PID if Getpgid fails, though it shouldn't if Setpgid was set.
-		pgid = cmd.Process.Pid
-	}
-
-	rp := &ListenerProcess{
-		Config: cfg,
-		Cmd:    cmd,
-		PGID:   pgid,
-		Active: true,
-	}
-
-	m.mutex.Lock()
-	m.listeners[cfg.Name] = rp
-	
-	// If the system is globally paused at max capacity, instantly freeze this new listener
-	if m.globalPaused {
-		log.Printf("[%s] System is at max capacity. Instantly freezing new listener (PGID: %d)", cfg.Name, pgid)
-		if err := syscall.Kill(-pgid, syscall.SIGSTOP); err != nil {
-			log.Printf("[%s] Failed to freeze new listener: %v", cfg.Name, err)
-		}
-	}
-	m.mutex.Unlock()
-
-	log.Printf("[%s] Started listener (PID: %d, PGID: %d)", cfg.Name, cmd.Process.Pid, pgid)
-
-	go m.streamLogs(cfg.Name, stdout, "INFO")
-	go m.streamLogs(cfg.Name, stderr, "ERROR")
-
-	// Wait for the process to exit in a separate goroutine
-	go func() {
-		err := cmd.Wait()
-		m.mutex.Lock()
-		rp.Active = false
-		m.mutex.Unlock()
+	var runnerGroupID int
+	if runnerGroup == scaleset.DefaultRunnerGroup {
+		runnerGroupID = 1
+	} else {
+		rg, err := client.GetRunnerGroupByName(ctx, runnerGroup)
 		if err != nil {
-			log.Printf("[%s] Listener exited with error: %v", cfg.Name, err)
-		} else {
-			log.Printf("[%s] Listener exited cleanly", cfg.Name)
+			log.Printf("[%s] Failed to get runner group ID: %v", cfg.Name, err)
+			return
 		}
-	}()
+		runnerGroupID = rg.ID
+	}
 
+	scaleSet, err := client.GetRunnerScaleSet(ctx, runnerGroupID, cfg.ScaleSetName)
+	if err != nil {
+		// If not found, create it
+		labels := []scaleset.Label{{Name: cfg.ScaleSetName, Type: "custom"}}
+		if cfg.Labels != "" {
+			labels = append(labels, scaleset.Label{Name: cfg.Labels, Type: "custom"})
+		}
+
+		scaleSet, err = client.CreateRunnerScaleSet(ctx, &scaleset.RunnerScaleSet{
+			Name:          cfg.ScaleSetName,
+			RunnerGroupID: runnerGroupID,
+			Labels:        labels,
+		})
+		if err != nil {
+			log.Printf("[%s] Failed to create runner scale set: %v", cfg.Name, err)
+			return
+		}
+	}
+
+	client.SetSystemInfo(scaleset.SystemInfo{
+		ScaleSetID: scaleSet.ID,
+	})
+
+	sessionClient, err := client.MessageSessionClient(ctx, scaleSet.ID, "multi-listener-runner")
+	if err != nil {
+		log.Printf("[%s] Failed to create message session client: %v", cfg.Name, err)
+		return
+	}
+	defer sessionClient.Close(ctx)
+
+	log.Printf("[%s] Initializing listener", cfg.Name)
+	lsnr, err := listener.New(sessionClient, listener.Config{
+		ScaleSetID: scaleSet.ID,
+		MaxRunners: maxWorkers,
+	})
+	if err != nil {
+		log.Printf("[%s] Failed to create listener: %v", cfg.Name, err)
+		return
+	}
+
+	scaler := &Scaler{
+		mux:            m,
+		runnerName:     cfg.Name,
+		scaleSetID:     scaleSet.ID,
+		scalesetClient: client,
+		maxRunners:     maxWorkers,
+		runnerCount:    0,
+	}
+
+	if err := lsnr.Run(ctx, scaler); err != nil {
+		log.Printf("[%s] Listener run failed: %v", cfg.Name, err)
+	}
+}
+
+type Scaler struct {
+	mux            *Multiplexer
+	runnerName     api.RunnerName
+	scaleSetID     int
+	scalesetClient *scaleset.Client
+	maxRunners     int
+	mutex          sync.Mutex
+	runnerCount    int
+}
+
+func (s *Scaler) HandleDesiredRunnerCount(ctx context.Context, count int) (int, error) {
+	s.mutex.Lock()
+	currentCount := s.runnerCount
+	s.mutex.Unlock()
+
+	targetRunnerCount := count
+	if targetRunnerCount > s.maxRunners {
+		targetRunnerCount = s.maxRunners
+	}
+
+	if targetRunnerCount > currentCount {
+		scaleUp := targetRunnerCount - currentCount
+		log.Printf("[%s] Scaling up runners by %d (Target: %d, Current: %d)", s.runnerName, scaleUp, targetRunnerCount, currentCount)
+
+		for i := 0; i < scaleUp; i++ {
+			go s.startWorker(context.Background())
+		}
+
+		s.mutex.Lock()
+		s.runnerCount = targetRunnerCount
+		s.mutex.Unlock()
+	}
+
+	return targetRunnerCount, nil
+}
+
+func (s *Scaler) startWorker(ctx context.Context) {
+	name := fmt.Sprintf("runner-%s", uuid.NewString()[:8])
+
+	jit, err := s.scalesetClient.GenerateJitRunnerConfig(ctx, &scaleset.RunnerScaleSetJitRunnerSetting{
+		Name: name,
+	}, s.scaleSetID)
+	if err != nil {
+		log.Printf("[%s] Failed to generate JIT config: %v", s.runnerName, err)
+		s.decrementCount()
+		return
+	}
+
+	ww, err := s.mux.orch.AllocateContainer(ctx, s.runnerName)
+	if err != nil {
+		log.Printf("[%s] Failed to allocate warm container: %v", s.runnerName, err)
+		s.decrementCount()
+		return
+	}
+
+	reqBody, _ := json.Marshal(api.StartRequest{
+		JITConfig: jit.EncodedJITConfig,
+	})
+
+	resp, err := http.Post(fmt.Sprintf("http://%s:9001/start", ww.IPAddress), "application/json", bytes.NewBuffer(reqBody))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		log.Printf("[%s] Failed to send JIT config to worker %s: %v", s.runnerName, ww.IPAddress, err)
+		s.decrementCount()
+		return
+	}
+
+	log.Printf("[%s] Successfully dispatched JIT config to warm worker %s", s.runnerName, ww.IPAddress)
+}
+
+func (s *Scaler) decrementCount() {
+	s.mutex.Lock()
+	s.runnerCount--
+	s.mutex.Unlock()
+}
+
+func (s *Scaler) HandleJobStarted(ctx context.Context, jobInfo *scaleset.JobStarted) error {
+	log.Printf("[%s] Job started: %s", s.runnerName, jobInfo.JobID)
 	return nil
 }
 
-func (m *Multiplexer) streamLogs(name api.RunnerName, r io.Reader, level string) {
-	scanner := bufio.NewScanner(r)
-	for scanner.Scan() {
-		line := scanner.Text()
-		// Prefix each log line with the runner name
-		fmt.Printf("[%s][%s] %s\n", name, level, strings.TrimSpace(line))
-	}
-	if err := scanner.Err(); err != nil {
-		log.Printf("[%s] Error reading %s stream: %v", name, level, err)
-	}
-}
-
-func (m *Multiplexer) LockOthers(activeRunners []api.RunnerName) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-	
-	m.globalPaused = true
-
-	activeMap := make(map[api.RunnerName]bool)
-	for _, name := range activeRunners {
-		activeMap[name] = true
-	}
-
-	for name, rp := range m.listeners {
-		if rp.Active && !activeMap[name] {
-			log.Printf("[Mutex] Sending SIGSTOP to %s (PGID: %d)", name, rp.PGID)
-			if err := syscall.Kill(-rp.PGID, syscall.SIGSTOP); err != nil {
-				log.Printf("[Mutex] Failed to freeze %s: %v", name, err)
-			}
-		}
-	}
-}
-
-func (m *Multiplexer) UnlockOthers() {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-	
-	m.globalPaused = false
-
-	for name, rp := range m.listeners {
-		if rp.Active {
-			log.Printf("[Mutex] Sending SIGCONT to %s (PGID: %d)", name, rp.PGID)
-			if err := syscall.Kill(-rp.PGID, syscall.SIGCONT); err != nil {
-				log.Printf("[Mutex] Failed to unfreeze %s: %v", name, err)
-			}
-		}
-	}
-}
-
-// GetListeners returns all tracked listener processes.
-func (m *Multiplexer) GetListeners() []*ListenerProcess {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	var listeners []*ListenerProcess
-	for _, rp := range m.listeners {
-		listeners = append(listeners, rp)
-	}
-	return listeners
+func (s *Scaler) HandleJobCompleted(ctx context.Context, jobInfo *scaleset.JobCompleted) error {
+	log.Printf("[%s] Job completed: %s", s.runnerName, jobInfo.JobID)
+	s.decrementCount()
+	return nil
 }

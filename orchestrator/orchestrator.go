@@ -2,10 +2,8 @@ package orchestrator
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"sync"
 	"time"
@@ -14,7 +12,6 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/kmhalvin/github-action-runners-mux/api"
-	"github.com/kmhalvin/github-action-runners-mux/multiplexer"
 )
 
 type WarmWorker struct {
@@ -23,7 +20,6 @@ type WarmWorker struct {
 }
 
 type Orchestrator struct {
-	mux               *multiplexer.Multiplexer
 	dockerCli         *client.Client
 	mutex             sync.Mutex
 	activeListeners   map[api.RunnerName]int // runnerName -> active count
@@ -37,14 +33,13 @@ type Orchestrator struct {
 	deadWarmWorkers   map[string]bool           // ContainerID -> true if died while warm
 }
 
-func NewOrchestrator(mux *multiplexer.Multiplexer, maxWorkers int, warmWorkers int) (*Orchestrator, error) {
+func NewOrchestrator(maxWorkers int, warmWorkers int) (*Orchestrator, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create docker client: %w", err)
 	}
 
 	o := &Orchestrator{
-		mux:               mux,
 		dockerCli:         cli,
 		activeListeners:   make(map[api.RunnerName]int),
 		maxWorkers:        maxWorkers,
@@ -73,23 +68,19 @@ func (o *Orchestrator) evaluateCapacity() {
 	log.Printf("[Orchestrator] Capacity evaluation: %d/%d workers assigned to jobs. (Pool: %d warm, %d booting)", totalAssigned, o.maxWorkers, len(o.warmPool), o.bootingCount)
 
 	if totalAssigned >= o.maxWorkers && !o.isPaused {
-		log.Printf("[Orchestrator] MAX CAPACITY REACHED. Freezing idle listeners...")
+		log.Printf("[Orchestrator] MAX CAPACITY REACHED.")
 		o.isPaused = true
-
-		var active []api.RunnerName
-		for rName, count := range o.activeListeners {
-			if count > 0 {
-				active = append(active, rName)
-			}
-		}
-
-		// We call the multiplexer natively!
-		o.mux.LockOthers(active)
 	} else if totalAssigned < o.maxWorkers && o.isPaused {
-		log.Printf("[Orchestrator] CAPACITY FREED. Unfreezing listeners...")
+		log.Printf("[Orchestrator] CAPACITY FREED.")
 		o.isPaused = false
-		o.mux.UnlockOthers()
 	}
+}
+
+// IsPaused returns true if the orchestrator is at max capacity
+func (o *Orchestrator) IsPaused() bool {
+	o.mutex.Lock()
+	defer o.mutex.Unlock()
+	return o.isPaused
 }
 
 func (o *Orchestrator) startContainer() (*WarmWorker, error) {
@@ -121,11 +112,11 @@ exec worker-launcher
 			`},
 		},
 		&container.HostConfig{
-			// NetworkMode allows the worker to talk back to this proxy easily
+			// NetworkMode allows the multiplexer to talk to the worker's HTTP API
 			NetworkMode: "github-action-runners-mux_default",
 			// DinD requires privileged mode
 			Privileged: startDocker,
-			// Ensure Docker daemon cleans it up if the proxy gets hard killed
+			// Ensure Docker daemon cleans it up if the orchestrator gets hard killed
 			AutoRemove: true,
 		},
 		&network.NetworkingConfig{},
@@ -170,7 +161,7 @@ func (o *Orchestrator) maintainPool() {
 		o.mutex.Unlock()
 
 	ReplenishLoop:
-		for range needsWarm {
+		for i := 0; i < needsWarm; i++ {
 			select {
 			case o.workerSem <- struct{}{}:
 				o.mutex.Lock()
@@ -205,18 +196,8 @@ func (o *Orchestrator) maintainPool() {
 	}
 }
 
-func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var payload api.AllocateRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Invalid payload", http.StatusBadRequest)
-		return
-	}
-
+// AllocateContainer gives a WarmWorker to the requester, blocking until capacity is available.
+func (o *Orchestrator) AllocateContainer(ctx context.Context, runnerName api.RunnerName) (*WarmWorker, error) {
 	for {
 		select {
 		case ww := <-o.warmPool:
@@ -229,42 +210,34 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Assign it
-			o.workerAssignments[ww.ContainerID] = payload.RunnerName
-			o.activeListeners[payload.RunnerName]++
+			o.workerAssignments[ww.ContainerID] = runnerName
+			o.activeListeners[runnerName]++
 			o.mutex.Unlock()
 
 			o.evaluateCapacity()
+			return ww, nil
 
-			json.NewEncoder(w).Encode(api.AllocateResponse{
-				WorkerIP: ww.IPAddress,
-			})
-			return
-
-		case <-r.Context().Done():
-			log.Printf("[Orchestrator] Request aborted by client while waiting for capacity.")
-			return
+		case <-ctx.Done():
+			log.Printf("[Orchestrator] Allocation aborted by context.")
+			return nil, ctx.Err()
 
 		case o.workerSem <- struct{}{}:
 			// Dynamically boot a container since warm pool is empty
 			ww, err := o.startContainer()
 			if err != nil {
 				<-o.workerSem
-				http.Error(w, "Failed to create worker container", http.StatusInternalServerError)
-				return
+				return nil, fmt.Errorf("failed to create worker container: %w", err)
 			}
 
 			o.mutex.Lock()
-			o.workerAssignments[ww.ContainerID] = payload.RunnerName
-			o.activeListeners[payload.RunnerName]++
+			o.workerAssignments[ww.ContainerID] = runnerName
+			o.activeListeners[runnerName]++
 			o.mutex.Unlock()
 
 			go o.monitorWorker(ww.ContainerID)
 			o.evaluateCapacity()
 
-			json.NewEncoder(w).Encode(api.AllocateResponse{
-				WorkerIP: ww.IPAddress,
-			})
-			return
+			return ww, nil
 		}
 	}
 }
