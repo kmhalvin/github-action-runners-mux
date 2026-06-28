@@ -1,14 +1,25 @@
 services:
   multi-runner-proxy:
-    build: .
-    image: github-action-runners-mux:latest
-    container_name: github-action-runners-mux
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: multi-listener-proxy:latest
+    container_name: multi-listener-proxy
     restart: unless-stopped
-    # Ensure Docker's stop signal allows the 30-minute graceful drain
     stop_grace_period: 30m
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./config.yaml:/etc/multi-listener/config.yaml:ro
     # environment:
-    #   - WORKER_START_DOCKER_SERVICE=true  # Enable Docker-in-Docker for workers
-    #   - WORKER_IMAGE=github-action-runners-mux:latest  # Custom worker image (optional)
+    #   - WORKER_IMAGE=multi-listener-worker:latest
+
+  multi-runner-worker:
+    # We include this so `docker compose build` builds the worker image, 
+    # ensuring it's available in the local daemon for the Orchestrator to spawn.
+    # We set profile to "donotstart" so it doesn't actually run a container on `docker compose up`
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+    image: multi-listener-worker:latest
+    profiles:
+      - donotstart

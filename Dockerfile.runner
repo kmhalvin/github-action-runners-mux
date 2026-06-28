@@ -1,0 +1,83 @@
+FROM golang:1.22 AS builder
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+# Build worker-launcher
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o worker-launcher ./cmd/worker-launcher
+
+# Runtime image built on official actions-runner
+ARG RUNNER_IMAGE_TAG="latest"
+FROM ghcr.io/actions/actions-runner:${RUNNER_IMAGE_TAG}
+
+# Switch to root to install prerequisites
+USER root
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ── Essential OS packages & Docker CE ───────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    jq \
+    gnupg \
+    tar \
+    unzip \
+    apt-transport-https \
+    sudo \
+    dumb-init \
+    && mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+       docker-ce \
+       docker-ce-cli \
+       docker-buildx-plugin \
+       containerd.io \
+       docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/* \
+    && sed -i 's/ulimit -Hn/# ulimit -Hn/g' /etc/init.d/docker \
+    && echo -e '#!/bin/sh\ndocker compose --compatibility "$@"' > /usr/local/bin/docker-compose \
+    && chmod +x /usr/local/bin/docker-compose
+
+# ── Development & workflow tools ─────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    python3 \
+    python3-pip \
+    python3-venv \
+    nodejs \
+    rsync \
+    zstd \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Git LFS ──────────────────────────────────────────────────────────────────
+RUN DPKG_ARCH="$(dpkg --print-architecture)" \
+    && GIT_LFS_VERSION=$(curl -sL -H "Accept: application/vnd.github+json" \
+       https://api.github.com/repos/git-lfs/git-lfs/releases/latest \
+       | jq -r '.tag_name' | sed 's/^v//g') \
+    && curl -sL "https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/git-lfs-linux-${DPKG_ARCH}-v${GIT_LFS_VERSION}.tar.gz" \
+       -o /tmp/lfs.tar.gz \
+    && tar -xzf /tmp/lfs.tar.gz -C /tmp \
+    && "/tmp/git-lfs-${GIT_LFS_VERSION}/install.sh" \
+    && rm -rf /tmp/lfs.tar.gz "/tmp/git-lfs-${GIT_LFS_VERSION}"
+
+# The official image already sets up the `runner` user with uid 1001, 
+# and it already has a `docker` group (gid 123) that the `runner` user is added to.
+# We just need to make sure sudo doesn't require a password.
+RUN echo '%sudo ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
+
+# ── Copy our launcher ────────────────────────────────────────────────────────
+COPY --from=builder /app/worker-launcher /usr/local/bin/worker-launcher
+
+# Switch back to runner user (required by GitHub Actions runner)
+USER runner
+
+WORKDIR /home/runner
+
+# We use dumb-init as the entrypoint for proper zombie reaping.
+# It will execute our worker-launcher which exposes the :9001 HTTP API.
+ENTRYPOINT ["/usr/bin/dumb-init", "--", "/bin/bash", "-c"]
+CMD ["if [ \"$START_DOCKER_SERVICE\" = \"true\" ]; then sudo service docker start; fi; exec /usr/local/bin/worker-launcher"]

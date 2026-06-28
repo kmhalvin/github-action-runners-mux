@@ -95,21 +95,15 @@ func (o *Orchestrator) startContainer() (*WarmWorker, error) {
 
 	workerImage := os.Getenv("WORKER_IMAGE")
 	if workerImage == "" {
-		workerImage = "github-action-runners-mux:latest"
+		workerImage = "multi-listener-worker:latest"
 	}
 
 	resp, err := o.dockerCli.ContainerCreate(ctx,
 		&container.Config{
 			Image:      workerImage,
 			Env:        workerEnv,
-			Entrypoint: []string{"/usr/bin/dumb-init", "--", "/bin/bash", "-c"},
-			Cmd: []string{`
-if [ "$START_DOCKER_SERVICE" = "true" ]; then
-	echo "Starting Docker-in-Docker service..."
-	sudo service docker start || service docker start
-fi
-exec worker-launcher
-			`},
+			// The entrypoint is already configured in Dockerfile.runner to start worker-launcher.
+			// We don't need to override it here anymore.
 		},
 		&container.HostConfig{
 			// NetworkMode allows the multiplexer to talk to the worker's HTTP API

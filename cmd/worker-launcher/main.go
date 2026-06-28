@@ -53,15 +53,16 @@ func (ws *WorkerLauncher) handleStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ws *WorkerLauncher) runWorker(jitConfig string) {
-	// The actions/scaleset client expects JIT tokens to be passed to Runner.Listener 
-	// running in a special ephemeral mode.
-	listenerPath := "/actions-runner/bin/Runner.Listener"
-	cmd := exec.Command(listenerPath, "run", "--startuptype", "service", "--jitconfig", jitConfig)
-	
+	// The JIT config token contains an embedded .runner settings file with Ephemeral=true,
+	// so the listener will accept exactly one job and exit cleanly.
+	// We use run.sh which wraps Runner.Listener with proper signal routing.
+	cmd := exec.Command("/actions-runner/run.sh")
+	cmd.Env = append(os.Environ(), "ACTIONS_RUNNER_INPUT_JITCONFIG="+jitConfig)
+
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	log.Printf("Spawning %s --jitconfig...", listenerPath)
+	log.Printf("Spawning run.sh with JIT config...")
 	if err := cmd.Start(); err != nil {
 		log.Printf("Failed to start listener with JIT config: %v", err)
 		ws.finish(1)
