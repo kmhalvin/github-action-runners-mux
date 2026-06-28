@@ -8,10 +8,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/kmhalvin/github-action-runners-mux/config"
-	"github.com/kmhalvin/github-action-runners-mux/multiplexer"
-	"github.com/kmhalvin/github-action-runners-mux/orchestrator"
 )
 
 const DrainTimeout = 30 * time.Minute
@@ -25,7 +21,7 @@ func main() {
 	if len(os.Args) > 1 {
 		cfgPath = os.Args[1]
 	}
-	cfg, err := config.LoadConfig(cfgPath)
+	cfg, err := LoadConfig(cfgPath)
 	if err != nil {
 		log.Fatalf("Fatal: %v", err)
 	}
@@ -37,13 +33,13 @@ func main() {
 	}
 	warmWorkers := min(max(cfg.WarmWorkers, 0), maxWorkers)
 
-	orch, err := orchestrator.NewOrchestrator(maxWorkers, warmWorkers)
+	orch, err := NewOrchestrator(maxWorkers, warmWorkers)
 	if err != nil {
 		log.Fatalf("Fatal: failed to initialize Orchestrator: %v", err)
 	}
 
 	// 3. Initialize Multiplexer
-	mux := multiplexer.NewMultiplexer(orch)
+	mux := NewMultiplexer(orch)
 
 	// 4. Start Runners
 	var wg sync.WaitGroup

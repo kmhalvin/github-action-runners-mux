@@ -1,10 +1,11 @@
-package config
+package main
 
 import (
 	"fmt"
 	"os"
 
-	"github.com/kmhalvin/github-action-runners-mux/api"
+	"github.com/kmhalvin/github-action-runners-mux/pkg/api"
+
 	"gopkg.in/yaml.v3"
 )
 

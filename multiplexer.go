@@ -1,4 +1,4 @@
-package multiplexer
+package main
 
 import (
 	"bytes"
@@ -9,31 +9,30 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/kmhalvin/github-action-runners-mux/pkg/api"
+
 	"github.com/actions/scaleset"
 	"github.com/actions/scaleset/listener"
 	"github.com/google/uuid"
-	"github.com/kmhalvin/github-action-runners-mux/api"
-	"github.com/kmhalvin/github-action-runners-mux/config"
-	"github.com/kmhalvin/github-action-runners-mux/orchestrator"
 )
 
 type Multiplexer struct {
-	orch  *orchestrator.Orchestrator
+	orch  *Orchestrator
 	mutex sync.RWMutex
 }
 
-func NewMultiplexer(orch *orchestrator.Orchestrator) *Multiplexer {
+func NewMultiplexer(orch *Orchestrator) *Multiplexer {
 	return &Multiplexer{
 		orch: orch,
 	}
 }
 
 // StartAll initializes the environment and starts all listeners concurrently.
-func (m *Multiplexer) StartAll(ctx context.Context, cfg *config.Config, wg *sync.WaitGroup) error {
+func (m *Multiplexer) StartAll(ctx context.Context, cfg *Config, wg *sync.WaitGroup) error {
 	for i := range cfg.Runners {
 		rCfg := &cfg.Runners[i]
 		wg.Add(1)
-		go func(c *config.RunnerConfig) {
+		go func(c *RunnerConfig) {
 			defer wg.Done()
 			m.startRunner(ctx, c, cfg.MaxWorkers)
 		}(rCfg)
@@ -41,7 +40,7 @@ func (m *Multiplexer) StartAll(ctx context.Context, cfg *config.Config, wg *sync
 	return nil
 }
 
-func (m *Multiplexer) startRunner(ctx context.Context, cfg *config.RunnerConfig, maxWorkers int) {
+func (m *Multiplexer) startRunner(ctx context.Context, cfg *RunnerConfig, maxWorkers int) {
 	log.Printf("[%s] Starting ScaleSet listener...", cfg.Name)
 
 	client, err := scaleset.NewClientWithPersonalAccessToken(scaleset.NewClientWithPersonalAccessTokenConfig{

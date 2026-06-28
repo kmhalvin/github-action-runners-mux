@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"sync"
 
-	"github.com/kmhalvin/github-action-runners-mux/api"
+	"github.com/kmhalvin/github-action-runners-mux/pkg/api"
 )
 
 type WorkerLauncher struct {

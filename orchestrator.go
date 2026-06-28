@@ -1,4 +1,4 @@
-package orchestrator
+package main
 
 import (
 	"context"
@@ -8,10 +8,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kmhalvin/github-action-runners-mux/pkg/api"
+
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
-	"github.com/kmhalvin/github-action-runners-mux/api"
 )
 
 type WarmWorker struct {
@@ -29,7 +30,7 @@ type Orchestrator struct {
 	workerSem         chan struct{} // Counting semaphore
 	warmPool          chan *WarmWorker
 	bootingCount      int
-	workerAssignments map[string]api.RunnerName // ContainerID -> RunnerName (empty means warm)
+	workerAssignments map[string]api.RunnerName // ContainerID -> api.RunnerName (empty means warm)
 	deadWarmWorkers   map[string]bool           // ContainerID -> true if died while warm
 }
 
@@ -100,8 +101,8 @@ func (o *Orchestrator) startContainer() (*WarmWorker, error) {
 
 	resp, err := o.dockerCli.ContainerCreate(ctx,
 		&container.Config{
-			Image:      workerImage,
-			Env:        workerEnv,
+			Image: workerImage,
+			Env:   workerEnv,
 			// The entrypoint is already configured in Dockerfile.runner to start worker-launcher.
 			// We don't need to override it here anymore.
 		},
