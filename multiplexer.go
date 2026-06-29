@@ -142,16 +142,13 @@ func (s *Scaler) HandleDesiredRunnerCount(ctx context.Context, count int) (int, 
 	currentCount := s.runnerCount
 	s.mutex.Unlock()
 
-	targetRunnerCount := count
-	if targetRunnerCount > s.maxRunners {
-		targetRunnerCount = s.maxRunners
-	}
+	targetRunnerCount := min(count, s.maxRunners)
 
 	if targetRunnerCount > currentCount {
 		scaleUp := targetRunnerCount - currentCount
 		log.Printf("[%s] Scaling up runners by %d (Target: %d, Current: %d)", s.runnerName, scaleUp, targetRunnerCount, currentCount)
 
-		for i := 0; i < scaleUp; i++ {
+		for range scaleUp {
 			go s.startWorker(context.Background())
 		}
 

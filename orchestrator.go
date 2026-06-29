@@ -156,7 +156,7 @@ func (o *Orchestrator) maintainPool() {
 		o.mutex.Unlock()
 
 	ReplenishLoop:
-		for i := 0; i < needsWarm; i++ {
+		for range needsWarm {
 			select {
 			case o.workerSem <- struct{}{}:
 				o.mutex.Lock()
