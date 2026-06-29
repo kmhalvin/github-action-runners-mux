@@ -99,9 +99,14 @@ func (m *Multiplexer) startRunner(ctx context.Context, cfg *RunnerConfig, maxWor
 	defer sessionClient.Close(ctx)
 
 	log.Printf("[%s] Initializing listener", cfg.Name)
+	listenerMaxRunners := maxWorkers
+	if cfg.MaxRunners > 0 {
+		listenerMaxRunners = cfg.MaxRunners
+	}
+
 	lsnr, err := listener.New(sessionClient, listener.Config{
 		ScaleSetID: scaleSet.ID,
-		MaxRunners: maxWorkers,
+		MaxRunners: listenerMaxRunners,
 	})
 	if err != nil {
 		log.Printf("[%s] Failed to create listener: %v", cfg.Name, err)
@@ -113,7 +118,7 @@ func (m *Multiplexer) startRunner(ctx context.Context, cfg *RunnerConfig, maxWor
 		runnerName:     cfg.Name,
 		scaleSetID:     scaleSet.ID,
 		scalesetClient: client,
-		maxRunners:     maxWorkers,
+		maxRunners:     listenerMaxRunners,
 		runnerCount:    0,
 	}
 

@@ -75,6 +75,7 @@ environment:
 | `runners[].url` | Yes | GitHub repository, org, or enterprise URL |
 | `runners[].pat` | Yes | Personal Access Token |
 | `runners[].scale_set_name` | Yes | Scale Set name (used as workflow `runs-on` label) |
+| `runners[].max_runners` | No | Limit the max concurrent jobs for this specific listener. Defaults to global `max_workers`. |
 | `runners[].labels` | No | Additional labels for workflow targeting |
 | `runners[].group` | No | Runner group name (default: `"Default"`) |
 

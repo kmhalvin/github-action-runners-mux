@@ -10,6 +10,7 @@ runners:
     url: https://github.com/my-org/backend
     pat: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
     scale_set_name: backend-runners
+    max_runners: 2 # Limit this listener to at most 2 concurrent jobs
 
   # Organization-level runner
   - name: internal-frontend
@@ -17,6 +18,7 @@ runners:
     pat: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
     scale_set_name: frontend-runners
     labels: linux,x64
+    # max_runners omitted; will fall back to global max_workers (5)
 
   # Enterprise-level runner with a custom runner group
   - name: enterprise-shared
