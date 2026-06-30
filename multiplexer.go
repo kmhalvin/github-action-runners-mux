@@ -70,6 +70,10 @@ func (m *Multiplexer) startRunner(ctx context.Context, cfg *RunnerConfig, maxWor
 
 	scaleSet, err := client.GetRunnerScaleSet(ctx, runnerGroupID, cfg.ScaleSetName)
 	if err != nil {
+		log.Printf("[%s] Failed to get runner scale set: %v", cfg.Name, err)
+		return
+	}
+	if scaleSet == nil {
 		// If not found, create it
 		labels := []scaleset.Label{{Name: cfg.ScaleSetName, Type: "custom"}}
 		if cfg.Labels != "" {
