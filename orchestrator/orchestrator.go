@@ -264,13 +264,8 @@ func (o *Orchestrator) maintainPool() {
 			}
 
 			if alive := o.checkContainerAlive(ww.ContainerID); !alive {
-				o.mutex.Lock()
-				if _, stillInPool := o.warmPool[ww.ContainerID]; stillInPool {
-					delete(o.warmPool, ww.ContainerID)
-					log.Printf("[Orchestrator] Warm container %s died before entering pool, removed", ww.ContainerID[:12])
-				}
-				o.logCapacityLocked()
-				o.mutex.Unlock()
+				log.Printf("[Orchestrator] Warm container %s died before entering pool, cleaning up", ww.ContainerID[:12])
+				o.handleContainerDeath(ww.ContainerID)
 			} else {
 				log.Printf("[Orchestrator] Warm container ready: %s", ww.ContainerID[:12])
 			}
@@ -402,8 +397,17 @@ func (o *Orchestrator) allocateContainer(ctx context.Context, runnerName api.Run
 			o.activeListeners[runnerName]++
 			o.logCapacityLocked()
 			o.cond.Broadcast()
-
 			o.mutex.Unlock()
+
+			// Safety check: if the container died before the mutex was locked,
+			// the watchEvents goroutine would have missed it. 
+			// We check if it's alive now, and if not, manually trigger death handling.
+			if !o.checkContainerAlive(ww.ContainerID) {
+				log.Printf("[Orchestrator] Active container %s died before entering pool, cleaning up", ww.ContainerID[:12])
+				o.handleContainerDeath(ww.ContainerID)
+				return nil, fmt.Errorf("container died immediately after allocation")
+			}
+
 			return ww, nil
 		}
 
