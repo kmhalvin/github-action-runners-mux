@@ -60,7 +60,9 @@ RUN mkdir -p /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/* \
     && sed -i 's/ulimit -Hn/# ulimit -Hn/g' /etc/init.d/docker \
     && echo -e '#!/bin/sh\ndocker compose --compatibility "$@"' > /usr/local/bin/docker-compose \
-    && chmod +x /usr/local/bin/docker-compose
+    && chmod +x /usr/local/bin/docker-compose \
+    && mkdir -p /etc/docker \
+    && echo '{"storage-driver": "vfs"}' > /etc/docker/daemon.json
 
 # ── Development & workflow tools ─────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
