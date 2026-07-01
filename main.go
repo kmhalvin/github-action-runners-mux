@@ -10,12 +10,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kmhalvin/github-action-runners-mux/api"
 	"github.com/kmhalvin/github-action-runners-mux/config"
 	"github.com/kmhalvin/github-action-runners-mux/multiplexer"
 	"github.com/kmhalvin/github-action-runners-mux/orchestrator"
 )
-
-const sockPath = "/tmp/multiplexer.sock"
 
 const DrainTimeout = 30 * time.Minute
 
@@ -50,18 +49,18 @@ func main() {
 	}
 
 	go func() {
-		os.Remove(sockPath)
-		listener, err := net.Listen("unix", sockPath)
+		os.Remove(api.SockPath)
+		listener, err := net.Listen("unix", api.SockPath)
 		if err != nil {
 			log.Fatalf("Fatal: failed to listen on unix socket: %v", err)
 		}
 		// Ensure the Worker Shim processes can access the socket
-		os.Chmod(sockPath, 0777)
+		os.Chmod(api.SockPath, 0777)
 
 		muxServer := http.NewServeMux()
 		muxServer.HandleFunc("/api/v1/worker/allocate", orch.HandleAllocate)
 
-		log.Printf("[Orchestrator] Listening on unix socket %s for Worker Shim allocations...", sockPath)
+		log.Printf("[Orchestrator] Listening on unix socket %s for Worker Shim allocations...", api.SockPath)
 		if err := http.Serve(listener, muxServer); err != nil {
 			log.Fatalf("Fatal: orchestrator server failed: %v", err)
 		}

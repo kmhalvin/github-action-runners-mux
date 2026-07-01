@@ -16,8 +16,6 @@ import (
 	"github.com/kmhalvin/github-action-runners-mux/api"
 )
 
-const sockPath = "/tmp/multiplexer.sock"
-
 func main() {
 	if len(os.Args) < 4 {
 		log.Fatalf("[Worker Shim] Expected at least 4 arguments, got %d", len(os.Args))
@@ -46,7 +44,7 @@ func main() {
 	client := http.Client{
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				return net.Dial("unix", sockPath)
+				return net.Dial("unix", api.SockPath)
 			},
 		},
 	}

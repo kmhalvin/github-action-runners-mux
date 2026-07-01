@@ -1,5 +1,7 @@
 package api
 
+const SockPath = "/tmp/proxy.sock"
+
 // Strongly typed RunnerName used across multiplexer, orchestrator, and config
 type RunnerName string
 
