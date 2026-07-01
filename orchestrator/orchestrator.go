@@ -290,7 +290,7 @@ func (o *Orchestrator) startContainer() (*WarmWorker, error) {
 
 	workerImage := os.Getenv("WORKER_IMAGE")
 	if workerImage == "" {
-		workerImage = "github-action-runners-mux:latest"
+		workerImage = "github-mux:latest"
 	}
 
 	containerName := namePrefixWarm + shortID()
@@ -313,7 +313,7 @@ exec worker-launcher
 			},
 		},
 		&container.HostConfig{
-			NetworkMode: "github-action-runners-mux_default",
+			NetworkMode: "github-mux_default",
 			Privileged:  startDocker,
 			AutoRemove:  true,
 		},

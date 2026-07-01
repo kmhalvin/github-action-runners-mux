@@ -3,8 +3,8 @@ version: '3.8'
 services:
   multi-runner-proxy:
     build: .
-    image: github-action-runners-mux:latest
-    container_name: github-action-runners-mux
+    image: github-mux:latest
+    container_name: github-mux
     restart: unless-stopped
     # Ensure Docker's stop signal allows the 30-minute graceful drain
     stop_grace_period: 30m
