@@ -1,4 +1,4 @@
-# GitHub Action Runners Multiplexer
+# GitHub Mux
 
 > An ephemeral, Docker-based GitHub Actions runner orchestrator that concurrently multiplexes jobs across multiple repositories, organizations, and GitHub Enterprise hosts—powered by the official [`actions/scaleset`](https://github.com/actions/scaleset) Go library.
 
@@ -9,7 +9,8 @@ The official GitHub Actions runner forces you to run a 1:1 mapping of runner pro
 - **Concurrent Multiplexing:** Register Scale Sets across multiple Repositories, Organizations, and Enterprise instances concurrently from a single lightweight container.
 - **True Ephemeral Workers:** Every job executes inside a brand new, isolated Docker container that is immediately destroyed upon completion.
 - **Zero-Latency Warm Pool:** Pre-boots warm worker containers so jobs start instantly without waiting for container startup.
-- **Native Autoscaling & Capacity Management:** Enforces a strict maximum worker limit using in-memory counting semaphores. When capacity is full, allocation blocks cleanly until a slot frees up.
+- **Docker as Source of Truth:** Container state is tracked via Docker labels and container names. On restart, the orchestrator recovers state from existing containers—no more orphaned workers.
+- **Native Autoscaling & Capacity Management:** Enforces a strict maximum worker limit derived from container state. When capacity is full, allocation blocks cleanly until a slot frees up.
 - **Simple Authentication:** Authenticate using Personal Access Tokens (PATs)—one per runner scope.
 
 ## Architecture
@@ -17,7 +18,7 @@ The official GitHub Actions runner forces you to run a 1:1 mapping of runner pro
 The project uses the official `actions/scaleset` Go library as the control plane, paired with a Docker-based warm pool for instant job execution:
 
 1. **The Multiplexer**: Initializes `actions/scaleset` clients for each configured runner. Each client opens a long-polling message session with GitHub.
-2. **The Orchestrator**: Maintains a warm pool of pre-booted Docker containers. When a job arrives, the Multiplexer requests a container from the Orchestrator and receives an IP address in O(1) time.
+2. **The Orchestrator**: Maintains a warm pool of pre-booted Docker containers. Uses Docker as the source of truth—container state is tracked via labels (`github-mux.managed`, `github-mux.runner`) and container names (`github-mux-warm-*`, `github-mux-active-<runner>-*`). On restart, existing containers are discovered and recovered. A single Docker Events stream monitors all container lifecycle events.
 3. **The Worker Launcher**: Inside each ephemeral container, a lightweight HTTP server (`worker-launcher`) listens on port `9001`. The Multiplexer generates a JIT (Just-In-Time) runner config token from GitHub and POSTs it to the container. The launcher then executes the official `Runner.Listener` binary in ephemeral mode, which authenticates, runs the job, and exits cleanly.
 
 ## Getting Started

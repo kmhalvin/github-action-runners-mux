@@ -6,18 +6,24 @@ warm_workers: 2
 
 runners:
   # Repository-level runner
-  - name: internal-backend
-    url: https://github.com/my-org/backend
-    pat: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-    scale_set_name: backend-runners
-    max_runners: 2 # Limit this listener to at most 2 concurrent jobs
+  - name: "Runner 1"
+    url: "https://github.com/my-org/repo-A"
+    pat: "ghp_xxxxxxxxxxxx"
+    scale_set_name: "repo-a-runners"
+    max_runners: 5
+    labels:
+      - "ubuntu-latest"
+      - "x64"
 
   # Organization-level runner
-  - name: internal-frontend
-    url: https://github.com/my-org
-    pat: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-    scale_set_name: frontend-runners
-    labels: linux,x64
+  - name: "Runner 2"
+    url: "https://github.com/my-org"
+    pat: "ghp_yyyyyyyyyyyy"
+    scale_set_name: "org-runners"
+    group: "Default"
+    labels:
+      - "self-hosted"
+      - "gpu"
     # max_runners omitted; will fall back to global max_workers (5)
 
   # Enterprise-level runner with a custom runner group

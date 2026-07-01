@@ -14,9 +14,9 @@ FROM alpine:latest
 # Install CA certificates for HTTPS requests (GitHub API)
 RUN apk --no-cache add ca-certificates tzdata
 
-WORKDIR /opt/multi-listener
+WORKDIR /opt/github-mux
 
 # Copy our proxy
 COPY --from=builder /app/proxy /usr/local/bin/proxy
 
-ENTRYPOINT ["/usr/local/bin/proxy", "/etc/multi-listener/config.yaml"]
+ENTRYPOINT ["/usr/local/bin/proxy", "/etc/github-mux/config.yaml"]

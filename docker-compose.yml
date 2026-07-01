@@ -1,25 +1,25 @@
 services:
-  multi-runner-proxy:
+  github-mux-proxy:
     build:
       context: .
       dockerfile: Dockerfile
-    image: multi-listener-proxy:latest
-    container_name: multi-listener-proxy
+    image: github-mux-proxy:latest
+    container_name: github-mux-proxy
     restart: unless-stopped
     stop_grace_period: 30m
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./config.yaml:/etc/multi-listener/config.yaml:ro
+      - ./config.yaml:/etc/github-mux/config.yaml:ro
     # environment:
-    #   - WORKER_IMAGE=multi-listener-worker:latest
+    #   - WORKER_IMAGE=github-mux-worker:latest
 
-  multi-runner-worker:
-    # We include this so `docker compose build` builds the worker image, 
+  github-mux-worker:
+    # We include this so `docker compose build` builds the worker image,
     # ensuring it's available in the local daemon for the Orchestrator to spawn.
     # We set profile to "donotstart" so it doesn't actually run a container on `docker compose up`
     build:
       context: .
       dockerfile: Dockerfile.runner
-    image: multi-listener-worker:latest
+    image: github-mux-worker:latest
     profiles:
       - donotstart

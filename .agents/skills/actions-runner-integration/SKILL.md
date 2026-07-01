@@ -5,7 +5,7 @@ description: Verification checklist and maintenance guide for integrating with t
 
 # Actions-Runner Integration Maintenance Guide
 
-The `multi-listener-runner` project integrates with the official GitHub Actions runner using the `actions/scaleset` library and JIT (Just-In-Time) configuration tokens. When the official runner version is updated, agents must verify the following integration points remain stable:
+The `github-mux` project integrates with the official GitHub Actions runner using the `actions/scaleset` library and JIT (Just-In-Time) configuration tokens. When the official runner version is updated, agents must verify the following integration points remain stable:
 
 ### 1. Binary Execution Paths
 - We rely on executing the official `/home/runner/run.sh` wrapper script natively inside the Docker container.

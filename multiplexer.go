@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/kmhalvin/github-action-runners-mux/pkg/api"
 
@@ -76,8 +78,11 @@ func (m *Multiplexer) startRunner(ctx context.Context, cfg *RunnerConfig, maxWor
 	if scaleSet == nil {
 		// If not found, create it
 		labels := []scaleset.Label{{Name: cfg.ScaleSetName, Type: "custom"}}
-		if cfg.Labels != "" {
-			labels = append(labels, scaleset.Label{Name: cfg.Labels, Type: "custom"})
+		for _, lbl := range cfg.Labels {
+			lbl = strings.TrimSpace(lbl)
+			if lbl != "" {
+				labels = append(labels, scaleset.Label{Name: lbl, Type: "custom"})
+			}
 		}
 
 		scaleSet, err = client.CreateRunnerScaleSet(ctx, &scaleset.RunnerScaleSet{
@@ -95,12 +100,18 @@ func (m *Multiplexer) startRunner(ctx context.Context, cfg *RunnerConfig, maxWor
 		ScaleSetID: scaleSet.ID,
 	})
 
-	sessionClient, err := client.MessageSessionClient(ctx, scaleSet.ID, "multi-listener-runner")
+	sessionClient, err := client.MessageSessionClient(ctx, scaleSet.ID, "github-mux")
 	if err != nil {
 		log.Printf("[%s] Failed to create message session client: %v", cfg.Name, err)
 		return
 	}
-	defer sessionClient.Close(ctx)
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := sessionClient.Close(closeCtx); err != nil {
+			log.Printf("[%s] Failed to close message session: %v", cfg.Name, err)
+		}
+	}()
 
 	log.Printf("[%s] Initializing listener", cfg.Name)
 	listenerMaxRunners := maxWorkers
@@ -119,11 +130,11 @@ func (m *Multiplexer) startRunner(ctx context.Context, cfg *RunnerConfig, maxWor
 
 	scaler := &Scaler{
 		mux:            m,
-		runnerName:     cfg.Name,
+		orch:           m.orch,
+		runnerName:     api.RunnerName(cfg.Name),
 		scaleSetID:     scaleSet.ID,
 		scalesetClient: client,
 		maxRunners:     listenerMaxRunners,
-		runnerCount:    0,
 	}
 
 	if err := lsnr.Run(ctx, scaler); err != nil {
@@ -133,38 +144,49 @@ func (m *Multiplexer) startRunner(ctx context.Context, cfg *RunnerConfig, maxWor
 
 type Scaler struct {
 	mux            *Multiplexer
+	orch           *Orchestrator
 	runnerName     api.RunnerName
 	scaleSetID     int
 	scalesetClient *scaleset.Client
 	maxRunners     int
 	mutex          sync.Mutex
-	runnerCount    int
+	pendingCount   int
 }
 
 func (s *Scaler) HandleDesiredRunnerCount(ctx context.Context, count int) (int, error) {
 	s.mutex.Lock()
-	currentCount := s.runnerCount
+	pending := s.pendingCount
 	s.mutex.Unlock()
 
-	targetRunnerCount := min(count, s.maxRunners)
+	currentCount := s.orch.GetActiveCount(s.runnerName) + pending
+
+	targetRunnerCount := count
+	if targetRunnerCount > s.maxRunners {
+		targetRunnerCount = s.maxRunners
+	}
 
 	if targetRunnerCount > currentCount {
 		scaleUp := targetRunnerCount - currentCount
-		log.Printf("[%s] Scaling up runners by %d (Target: %d, Current: %d)", s.runnerName, scaleUp, targetRunnerCount, currentCount)
-
-		for range scaleUp {
-			go s.startWorker(context.Background())
-		}
+		log.Printf("[%s] Scaling up runners by %d (Target: %d, Current: %d = %d active + %d pending)", s.runnerName, scaleUp, targetRunnerCount, currentCount, s.orch.GetActiveCount(s.runnerName), pending)
 
 		s.mutex.Lock()
-		s.runnerCount = targetRunnerCount
+		s.pendingCount += scaleUp
 		s.mutex.Unlock()
+
+		for i := 0; i < scaleUp; i++ {
+			go s.startWorker(context.Background())
+		}
 	}
 
 	return targetRunnerCount, nil
 }
 
 func (s *Scaler) startWorker(ctx context.Context) {
+	defer func() {
+		s.mutex.Lock()
+		s.pendingCount--
+		s.mutex.Unlock()
+	}()
 	name := fmt.Sprintf("runner-%s", uuid.NewString()[:8])
 
 	jit, err := s.scalesetClient.GenerateJitRunnerConfig(ctx, &scaleset.RunnerScaleSetJitRunnerSetting{
@@ -172,14 +194,12 @@ func (s *Scaler) startWorker(ctx context.Context) {
 	}, s.scaleSetID)
 	if err != nil {
 		log.Printf("[%s] Failed to generate JIT config: %v", s.runnerName, err)
-		s.decrementCount()
 		return
 	}
 
 	ww, err := s.mux.orch.AllocateContainer(ctx, s.runnerName)
 	if err != nil {
 		log.Printf("[%s] Failed to allocate warm container: %v", s.runnerName, err)
-		s.decrementCount()
 		return
 	}
 
@@ -190,17 +210,10 @@ func (s *Scaler) startWorker(ctx context.Context) {
 	resp, err := http.Post(fmt.Sprintf("http://%s:9001/start", ww.IPAddress), "application/json", bytes.NewBuffer(reqBody))
 	if err != nil || resp.StatusCode != http.StatusOK {
 		log.Printf("[%s] Failed to send JIT config to worker %s: %v", s.runnerName, ww.IPAddress, err)
-		s.decrementCount()
 		return
 	}
 
 	log.Printf("[%s] Successfully dispatched JIT config to warm worker %s", s.runnerName, ww.IPAddress)
-}
-
-func (s *Scaler) decrementCount() {
-	s.mutex.Lock()
-	s.runnerCount--
-	s.mutex.Unlock()
 }
 
 func (s *Scaler) HandleJobStarted(ctx context.Context, jobInfo *scaleset.JobStarted) error {
@@ -210,6 +223,5 @@ func (s *Scaler) HandleJobStarted(ctx context.Context, jobInfo *scaleset.JobStar
 
 func (s *Scaler) HandleJobCompleted(ctx context.Context, jobInfo *scaleset.JobCompleted) error {
 	log.Printf("[%s] Job completed: %s", s.runnerName, jobInfo.JobID)
-	s.decrementCount()
 	return nil
 }

@@ -14,7 +14,7 @@ type RunnerConfig struct {
 	URL          string         `yaml:"url"`
 	PAT          string         `yaml:"pat"`
 	ScaleSetName string         `yaml:"scale_set_name"`
-	Labels       string         `yaml:"labels,omitempty"`
+	Labels       []string       `yaml:"labels,omitempty"`
 	Group        string         `yaml:"group,omitempty"`
 	MaxRunners   int            `yaml:"max_runners,omitempty"`
 }
