@@ -37,12 +37,8 @@ func InitializeEnvironment(cfg *RunnerConfig) error {
 		// Shim Injection
 		shimSrc := "/usr/local/bin/worker-shim"
 		workerPath := filepath.Join(cfg.Dir, "bin", "Runner.Worker")
-		workerRealPath := filepath.Join(cfg.Dir, "bin", "Runner.Worker.real")
 
 		log.Printf("[%s] Injecting User-Space Shim...", cfg.Name)
-		if err := os.Rename(workerPath, workerRealPath); err != nil {
-			return fmt.Errorf("failed to rename Runner.Worker to Runner.Worker.real: %w", err)
-		}
 		shimCp := exec.Command("cp", shimSrc, workerPath)
 		if err := shimCp.Run(); err != nil {
 			return fmt.Errorf("failed to inject shim binary: %w", err)

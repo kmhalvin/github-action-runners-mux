@@ -1,9 +1,11 @@
 version: '3.8'
 
 services:
-  multi-runner-proxy:
-    build: .
-    image: github-mux:latest
+  github-mux-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: github-mux-proxy:latest
     container_name: github-mux
     restart: unless-stopped
     # Ensure Docker's stop signal allows the 30-minute graceful drain
@@ -12,6 +14,14 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./config.sample.yaml:/etc/multi-listener/config.yaml:ro
       - runner-data:/opt/runners
+
+  github-mux-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+    image: github-mux-worker:latest
+    profiles:
+      - donotstart
 
 volumes:
   runner-data:

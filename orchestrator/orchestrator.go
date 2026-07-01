@@ -290,7 +290,7 @@ func (o *Orchestrator) startContainer() (*WarmWorker, error) {
 
 	workerImage := os.Getenv("WORKER_IMAGE")
 	if workerImage == "" {
-		workerImage = "github-mux:latest"
+		workerImage = "github-mux-worker:latest"
 	}
 
 	containerName := namePrefixWarm + shortID()
