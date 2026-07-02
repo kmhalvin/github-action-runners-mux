@@ -16,7 +16,7 @@ type RunnerConfig struct {
 	Dir          string         `yaml:"dir,omitempty"`            // For standalone
 	PAT          string         `yaml:"pat,omitempty"`            // For scaleset
 	ScaleSetName string         `yaml:"scale_set_name,omitempty"` // For scaleset
-	Labels       string         `yaml:"labels,omitempty"`
+	Labels       []string       `yaml:"labels,omitempty"`
 	Group        string         `yaml:"group,omitempty"`
 }
 
@@ -51,15 +51,16 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, fmt.Errorf("runner configuration is missing required fields (name, url)")
 		}
 
-		if r.Mode == "standalone" {
+		switch r.Mode {
+		case "standalone":
 			if r.Dir == "" {
 				return nil, fmt.Errorf("standalone runner [%s] is missing required field: dir", r.Name)
 			}
-		} else if r.Mode == "scaleset" {
+		case "scaleset":
 			if r.PAT == "" || r.ScaleSetName == "" {
 				return nil, fmt.Errorf("scaleset runner [%s] is missing required fields: pat, scale_set_name", r.Name)
 			}
-		} else {
+		default:
 			return nil, fmt.Errorf("runner [%s] has invalid mode '%s' (must be 'standalone' or 'scaleset')", r.Name, r.Mode)
 		}
 	}

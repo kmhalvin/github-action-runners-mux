@@ -64,8 +64,8 @@ func (m *ScaleSetManager) StartRunner(ctx context.Context, cfg *config.RunnerCon
 	if scaleSet == nil {
 		// If not found, create it
 		labels := []scaleset.Label{{Name: cfg.ScaleSetName, Type: "custom"}}
-		if cfg.Labels != "" {
-			for _, lbl := range strings.Split(cfg.Labels, ",") {
+		if len(cfg.Labels) > 0 {
+			for _, lbl := range cfg.Labels {
 				lbl = strings.TrimSpace(lbl)
 				if lbl != "" {
 					labels = append(labels, scaleset.Label{Name: lbl, Type: "custom"})

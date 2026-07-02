@@ -1,27 +1,32 @@
-max_workers: 5
+max_workers: 10
 warm_workers: 2
 runners:
-  - name: internal-backend
+  # Standalone Mode Example (Requires Registration Token)
+  - name: internal-backend-standalone
+    mode: standalone
     url: https://github.com/my-org/backend
     token: ABCDEFGHIJKLMNOPQRSTUVWXYZ123456
     dir: /opt/runners/backend
 
-  - name: internal-frontend
+  # Scale Set Mode Example (Requires PAT with repo/org admin access)
+  - name: internal-frontend-scaleset
+    mode: scaleset
     url: https://github.com/my-org/frontend
-    token: ABCDEFGHIJKLMNOPQRSTUVWXYZ123456
-    dir: /opt/runners/frontend
-
-  - name: enterprise-shared
-    url: https://github.com/my-enterprise
-    token: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
-    group: Default
-    labels:
-      - self-hosted
+    pat: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    scale_set_name: my-frontend-scaleset
+    labels: 
       - linux
       - x64
+      - frontend
+    group: Default
 
+  # Another Standalone Example
   - name: public-open-source
+    mode: standalone
     url: https://github.com/my-org/open-source
     token: ABCDEFGHIJKLMNOPQRSTUVWXYZ123456
     dir: /opt/runners/open-source
-    labels: linux,x64,public-runner
+    labels:
+      - linux
+      - x64
+      - public-runner

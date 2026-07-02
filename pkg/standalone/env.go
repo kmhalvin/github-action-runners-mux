@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/kmhalvin/github-action-runners-mux/config"
 )
@@ -69,8 +70,8 @@ func InitializeEnvironment(cfg *config.RunnerConfig) error {
 		"--disableupdate", // Disable self-mutation mid-flight
 	}
 
-	if cfg.Labels != "" {
-		args = append(args, "--labels", cfg.Labels)
+	if len(cfg.Labels) > 0 {
+		args = append(args, "--labels", strings.Join(cfg.Labels, ","))
 	}
 
 	if cfg.Group != "" {
