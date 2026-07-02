@@ -26,26 +26,21 @@ type Scaler struct {
 func (s *Scaler) HandleDesiredRunnerCount(ctx context.Context, count int) (int, error) {
 	s.mutex.Lock()
 	pending := s.pendingCount
+	active := s.orch.GetActiveCount(s.runnerName)
+	currentCount := active + pending
+
+	targetRunnerCount := min(count, s.maxRunners)
+
+	scaleUp := 0
+	if targetRunnerCount > currentCount {
+		scaleUp = targetRunnerCount - currentCount
+		log.Printf("[%s] Scaling up runners by %d (Target: %d, Current: %d = %d active + %d pending)", s.runnerName, scaleUp, targetRunnerCount, currentCount, active, pending)
+		s.pendingCount += scaleUp
+	}
 	s.mutex.Unlock()
 
-	currentCount := s.orch.GetActiveCount(s.runnerName) + pending
-
-	targetRunnerCount := count
-	if targetRunnerCount > s.maxRunners {
-		targetRunnerCount = s.maxRunners
-	}
-
-	if targetRunnerCount > currentCount {
-		scaleUp := targetRunnerCount - currentCount
-		log.Printf("[%s] Scaling up runners by %d (Target: %d, Current: %d = %d active + %d pending)", s.runnerName, scaleUp, targetRunnerCount, currentCount, s.orch.GetActiveCount(s.runnerName), pending)
-
-		s.mutex.Lock()
-		s.pendingCount += scaleUp
-		s.mutex.Unlock()
-
-		for i := 0; i < scaleUp; i++ {
-			go s.startWorker(context.Background())
-		}
+	for range scaleUp {
+		go s.startWorker(context.Background())
 	}
 
 	return targetRunnerCount, nil

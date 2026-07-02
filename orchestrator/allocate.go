@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"time"
 
-
 	"github.com/kmhalvin/github-action-runners-mux/api"
 )
 
@@ -19,7 +18,7 @@ func (o *Orchestrator) GetActiveCount(runnerName api.RunnerName) int {
 	return o.activeListeners[runnerName]
 }
 
-func (o *Orchestrator) AllocateStandalone(ctx context.Context, runnerName api.RunnerName) (*WarmWorker, error) {
+func (o *Orchestrator) allocateStandalone(ctx context.Context, runnerName api.RunnerName) (*WarmWorker, error) {
 	o.mutex.Lock()
 
 	for {
@@ -76,7 +75,7 @@ func (o *Orchestrator) AllocateStandalone(ctx context.Context, runnerName api.Ru
 			o.mutex.Unlock()
 
 			// Safety check: if the container died before the mutex was locked,
-			// the watchEvents goroutine would have missed it. 
+			// the watchEvents goroutine would have missed it.
 			// We check if it's alive now, and if not, manually trigger death handling.
 			if !o.checkContainerAlive(ww.ContainerID) {
 				log.Printf("[Orchestrator] Active container %s died before entering pool, cleaning up", ww.ContainerID[:12])
@@ -93,7 +92,13 @@ func (o *Orchestrator) AllocateStandalone(ctx context.Context, runnerName api.Ru
 			return nil, ctx.Err()
 		default:
 		}
+		
 		o.cond.Wait()
+		
+		if err := ctx.Err(); err != nil {
+			o.mutex.Unlock()
+			return nil, err
+		}
 	}
 }
 
@@ -109,7 +114,7 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ww, err := o.AllocateStandalone(r.Context(), payload.RunnerName)
+	ww, err := o.allocateStandalone(r.Context(), payload.RunnerName)
 	if err != nil {
 		log.Printf("[Orchestrator] Allocation failed: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -125,7 +130,7 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 
 // AllocateJIT acquires a container and pushes a JIT configuration to it via HTTP.
 func (o *Orchestrator) AllocateJIT(ctx context.Context, runnerName api.RunnerName, jitConfig string) error {
-	ww, err := o.AllocateStandalone(ctx, runnerName)
+	ww, err := o.allocateStandalone(ctx, runnerName)
 	if err != nil {
 		return fmt.Errorf("failed to allocate worker for JIT: %w", err)
 	}
@@ -150,4 +155,3 @@ func (o *Orchestrator) AllocateJIT(ctx context.Context, runnerName api.RunnerNam
 	log.Printf("[Orchestrator] Successfully pushed JIT payload to %s", ww.ContainerID[:12])
 	return nil
 }
-

@@ -42,6 +42,9 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("no runners configured")
 	}
 
+	seenNames := make(map[api.RunnerName]bool)
+	seenDirs := make(map[string]bool)
+
 	for i := range cfg.Runners {
 		if cfg.Runners[i].Mode == "" {
 			cfg.Runners[i].Mode = "standalone" // default
@@ -52,11 +55,20 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, fmt.Errorf("runner configuration is missing required fields (name, url)")
 		}
 
+		if seenNames[r.Name] {
+			return nil, fmt.Errorf("duplicate runner name detected: %s", r.Name)
+		}
+		seenNames[r.Name] = true
+
 		switch r.Mode {
 		case "standalone":
 			if r.Dir == "" {
 				return nil, fmt.Errorf("standalone runner [%s] is missing required field: dir", r.Name)
 			}
+			if seenDirs[r.Dir] {
+				return nil, fmt.Errorf("duplicate standalone runner directory detected: %s (used by %s)", r.Dir, r.Name)
+			}
+			seenDirs[r.Dir] = true
 		case "scaleset":
 			if r.PAT == "" || r.ScaleSetName == "" {
 				return nil, fmt.Errorf("scaleset runner [%s] is missing required fields: pat, scale_set_name", r.Name)
