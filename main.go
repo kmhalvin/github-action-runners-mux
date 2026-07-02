@@ -7,20 +7,24 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/kmhalvin/github-action-runners-mux/api"
 	"github.com/kmhalvin/github-action-runners-mux/config"
-	"github.com/kmhalvin/github-action-runners-mux/multiplexer"
 	"github.com/kmhalvin/github-action-runners-mux/orchestrator"
+	"github.com/kmhalvin/github-action-runners-mux/pkg/scaleset"
+	"github.com/kmhalvin/github-action-runners-mux/pkg/standalone"
 )
 
 const DrainTimeout = 30 * time.Minute
 
 func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
-	// 2. Load Configuration
+	// 1. Load Configuration
 	cfgPath := "config.yaml"
 	if len(os.Args) > 1 {
 		cfgPath = os.Args[1]
@@ -30,11 +34,11 @@ func main() {
 		log.Fatalf("Fatal: %v", err)
 	}
 
-	// 3. Reconcile Configuration (Deregister stale runners)
+	// 2. Reconcile Configuration (Deregister stale runners) - Note: currently only impacts standalone
 	config.SyncRunners(cfg)
 
-	// 4. Initialize Multiplexer
-	mux := multiplexer.NewMultiplexer()
+	// 3. Initialize Standalone Manager
+	stdManager := standalone.NewManager()
 
 	// 4. Initialize Orchestrator
 	maxWorkers := cfg.MaxWorkers
@@ -43,87 +47,97 @@ func main() {
 	}
 	warmWorkers := min(max(cfg.WarmWorkers, 0), maxWorkers)
 
-	orch, err := orchestrator.NewOrchestrator(mux, maxWorkers, warmWorkers)
+	orch, err := orchestrator.NewOrchestrator(stdManager, maxWorkers, warmWorkers)
 	if err != nil {
 		log.Fatalf("Fatal: failed to initialize Orchestrator: %v", err)
 	}
 
+	// 5. Initialize ScaleSet Manager
+	ssManager := scaleset.NewScaleSetManager(orch)
+
+	// Start Unix socket server for Standalone shim allocations
 	go func() {
 		os.Remove(api.SockPath)
 		listener, err := net.Listen("unix", api.SockPath)
 		if err != nil {
 			log.Fatalf("Fatal: failed to listen on unix socket: %v", err)
 		}
-		// Ensure the Worker Shim processes can access the socket
 		os.Chmod(api.SockPath, 0777)
 
 		muxServer := http.NewServeMux()
 		muxServer.HandleFunc("/api/v1/worker/allocate", orch.HandleAllocate)
 
-		log.Printf("[Orchestrator] Listening on unix socket %s for Worker Shim allocations...", api.SockPath)
+		log.Printf("[Orchestrator] Listening on unix socket %s for Standalone Shim allocations...", api.SockPath)
 		if err := http.Serve(listener, muxServer); err != nil {
 			log.Fatalf("Fatal: orchestrator server failed: %v", err)
 		}
 	}()
 
-	// 5. Start Runners
-	if err := mux.StartAll(cfg); err != nil {
+	// 6. Start Runners Based on Mode
+	var wg sync.WaitGroup
+	if err := stdManager.StartAll(cfg); err != nil {
 		log.Fatalf("Fatal: %v", err)
 	}
 
-	// 6. Graceful Shutdown & Lifecycle Management
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	for i := range cfg.Runners {
+		rCfg := &cfg.Runners[i]
+		if rCfg.Mode == "scaleset" {
+			wg.Add(1)
+			go func(c *config.RunnerConfig) {
+				defer wg.Done()
+				ssManager.StartRunner(ctx, c, maxWorkers)
+			}(rCfg)
+		}
+	}
 
-	sig := <-sigCh
-	log.Printf("Received signal %v, initiating graceful shutdown...", sig)
+	// 7. Graceful Shutdown & Lifecycle Management
+	log.Printf("All listeners started. Waiting for interrupt signal to shutdown...")
+	<-ctx.Done()
+	log.Printf("Interrupt signal received, initiating graceful shutdown...")
 
-	// Drain logic
-	// Create a context for the hard timeout
-	ctx, cancel := context.WithTimeout(context.Background(), DrainTimeout)
-	defer cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), DrainTimeout)
+	defer shutdownCancel()
 
 	doneCh := make(chan struct{})
-
 	go func() {
-		drainAndCleanup(mux)
+		drainAndCleanup(stdManager)
+		wg.Wait()
 		close(doneCh)
 	}()
 
 	select {
 	case <-doneCh:
 		log.Printf("Graceful shutdown completed.")
-	case <-ctx.Done():
+	case <-shutdownCtx.Done():
 		log.Printf("Hard drain timeout reached (30m). Escalating to SIGKILL.")
-		forceKillAll(mux)
+		forceKillAll(stdManager)
 	}
 }
 
-func drainAndCleanup(mux *multiplexer.Multiplexer) {
-	log.Println("Shutting down Multiplexer and gracefully stopping all Listeners...")
-	for _, rp := range mux.GetListeners() {
+func drainAndCleanup(stdManager *standalone.Manager) {
+	log.Println("Shutting down gracefully stopping all Standalone Listeners...")
+	for _, rp := range stdManager.GetListeners() {
 		if rp.Active {
 			log.Printf("[%s] Sending SIGINT (Graceful Shutdown) and SIGCONT...", rp.Config.Name)
-			syscall.Kill(-rp.PGID, syscall.SIGCONT)          // Wake it up so it processes SIGINT if it was frozen
-			syscall.Kill(rp.Cmd.Process.Pid, syscall.SIGINT) // Send SIGINT directly to the Listener, NOT the PGID
+			syscall.Kill(-rp.PGID, syscall.SIGCONT)          
+			syscall.Kill(rp.Cmd.Process.Pid, syscall.SIGINT)
 		}
 	}
 
-	// Wait for all listeners to exit
-	for _, rp := range mux.GetListeners() {
+	for _, rp := range stdManager.GetListeners() {
 		if rp.Active {
 			_ = rp.Cmd.Wait()
 		}
 	}
 }
 
-func forceKillAll(mux *multiplexer.Multiplexer) {
-	listeners := mux.GetListeners()
+func forceKillAll(stdManager *standalone.Manager) {
+	listeners := stdManager.GetListeners()
 	for _, rp := range listeners {
 		if rp.Active {
 			log.Printf("[%s] Force killing...", rp.Config.Name)
-			syscall.Kill(rp.Cmd.Process.Pid, syscall.SIGKILL) // Kill the Listener
-			syscall.Kill(-rp.PGID, syscall.SIGCONT)           // Wake up the PGID so children can die
+			syscall.Kill(rp.Cmd.Process.Pid, syscall.SIGKILL) 
+			syscall.Kill(-rp.PGID, syscall.SIGCONT)           
 		}
 	}
 }

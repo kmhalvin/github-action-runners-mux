@@ -9,12 +9,15 @@ import (
 )
 
 type RunnerConfig struct {
-	Name   api.RunnerName `yaml:"name"`
-	URL    string         `yaml:"url"`
-	Token  string         `yaml:"token"`
-	Dir    string         `yaml:"dir"`
-	Labels string         `yaml:"labels,omitempty"`
-	Group  string         `yaml:"group,omitempty"`
+	Name         api.RunnerName `yaml:"name"`
+	Mode         string         `yaml:"mode"` // "standalone" or "scaleset"
+	URL          string         `yaml:"url"`
+	Token        string         `yaml:"token,omitempty"`          // For standalone
+	Dir          string         `yaml:"dir,omitempty"`            // For standalone
+	PAT          string         `yaml:"pat,omitempty"`            // For scaleset
+	ScaleSetName string         `yaml:"scale_set_name,omitempty"` // For scaleset
+	Labels       string         `yaml:"labels,omitempty"`
+	Group        string         `yaml:"group,omitempty"`
 }
 
 type Config struct {
@@ -38,11 +41,27 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("no runners configured")
 	}
 
-	for _, r := range cfg.Runners {
-		if r.Name == "" || r.URL == "" || r.Dir == "" {
-			return nil, fmt.Errorf("runner configuration is missing required fields (name, url, dir)")
+	for i := range cfg.Runners {
+		if cfg.Runners[i].Mode == "" {
+			cfg.Runners[i].Mode = "standalone" // default
 		}
-		// Token can be empty if it's already registered, but let's warn or handle later if it's not registered
+		r := cfg.Runners[i]
+
+		if r.Name == "" || r.URL == "" {
+			return nil, fmt.Errorf("runner configuration is missing required fields (name, url)")
+		}
+
+		if r.Mode == "standalone" {
+			if r.Dir == "" {
+				return nil, fmt.Errorf("standalone runner [%s] is missing required field: dir", r.Name)
+			}
+		} else if r.Mode == "scaleset" {
+			if r.PAT == "" || r.ScaleSetName == "" {
+				return nil, fmt.Errorf("scaleset runner [%s] is missing required fields: pat, scale_set_name", r.Name)
+			}
+		} else {
+			return nil, fmt.Errorf("runner [%s] has invalid mode '%s' (must be 'standalone' or 'scaleset')", r.Name, r.Mode)
+		}
 	}
 
 	return &cfg, nil

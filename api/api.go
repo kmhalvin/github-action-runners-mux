@@ -19,3 +19,8 @@ type AllocateResponse struct {
 type WaitResponse struct {
 	ExitCode int `json:"exit_code"`
 }
+
+// StartRequest is the payload sent from the Orchestrator to the worker-launcher's /start endpoint
+type StartRequest struct {
+	JITConfig string `json:"jitConfig"`
+}

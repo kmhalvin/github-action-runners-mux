@@ -1,4 +1,4 @@
-package multiplexer
+package standalone
 
 import (
 	"bufio"
@@ -23,29 +23,32 @@ type ListenerProcess struct {
 	Active bool
 }
 
-type Multiplexer struct {
+type Manager struct {
 	listeners    map[api.RunnerName]*ListenerProcess
 	mutex        sync.RWMutex
 	globalPaused bool
 }
 
-func NewMultiplexer() *Multiplexer {
-	return &Multiplexer{
+func NewManager() *Manager {
+	return &Manager{
 		listeners: make(map[api.RunnerName]*ListenerProcess),
 	}
 }
 
 // StartAll initializes the environment and starts all listeners concurrently.
-func (m *Multiplexer) StartAll(cfg *config.Config) error {
+func (m *Manager) StartAll(cfg *config.Config) error {
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(cfg.Runners))
 
 	for i := range cfg.Runners {
 		rCfg := &cfg.Runners[i]
+		if rCfg.Mode != "standalone" {
+			continue
+		}
 		wg.Add(1)
 		go func(c *config.RunnerConfig) {
 			defer wg.Done()
-			if err := config.InitializeEnvironment(c); err != nil {
+			if err := InitializeEnvironment(c); err != nil {
 				errCh <- fmt.Errorf("failed to initialize %s: %v", c.Name, err)
 				return
 			}
@@ -65,7 +68,7 @@ func (m *Multiplexer) StartAll(cfg *config.Config) error {
 	return nil
 }
 
-func (m *Multiplexer) startRunner(cfg *config.RunnerConfig) error {
+func (m *Manager) startRunner(cfg *config.RunnerConfig) error {
 	log.Printf("[%s] Starting Listener via Go command...", cfg.Name)
 	// We no longer need run.sh wrappers. We execute the listener natively.
 	cmd := exec.Command("./bin/Runner.Listener", "run", "--startuptype", "service")
@@ -133,7 +136,7 @@ func (m *Multiplexer) startRunner(cfg *config.RunnerConfig) error {
 	return nil
 }
 
-func (m *Multiplexer) streamLogs(name api.RunnerName, r io.Reader, level string) {
+func (m *Manager) streamLogs(name api.RunnerName, r io.Reader, level string) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -145,7 +148,7 @@ func (m *Multiplexer) streamLogs(name api.RunnerName, r io.Reader, level string)
 	}
 }
 
-func (m *Multiplexer) LockOthers(activeRunners []api.RunnerName) {
+func (m *Manager) LockOthers(activeRunners []api.RunnerName) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	
@@ -166,7 +169,7 @@ func (m *Multiplexer) LockOthers(activeRunners []api.RunnerName) {
 	}
 }
 
-func (m *Multiplexer) UnlockOthers() {
+func (m *Manager) UnlockOthers() {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	
@@ -183,7 +186,7 @@ func (m *Multiplexer) UnlockOthers() {
 }
 
 // GetListeners returns all tracked listener processes.
-func (m *Multiplexer) GetListeners() []*ListenerProcess {
+func (m *Manager) GetListeners() []*ListenerProcess {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 	var listeners []*ListenerProcess

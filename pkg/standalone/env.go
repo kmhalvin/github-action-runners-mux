@@ -1,4 +1,4 @@
-package config
+package standalone
 
 import (
 	"encoding/json"
@@ -7,10 +7,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/kmhalvin/github-action-runners-mux/config"
 )
 
+type MuxMeta struct {
+	Token string `json:"token"`
+	URL   string `json:"url"`
+}
+
 // InitializeEnvironment checks if the runner is registered and runs config.sh if needed.
-func InitializeEnvironment(cfg *RunnerConfig) error {
+func InitializeEnvironment(cfg *config.RunnerConfig) error {
 	// Ensure the directory exists
 	if err := os.MkdirAll(cfg.Dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", cfg.Dir, err)
