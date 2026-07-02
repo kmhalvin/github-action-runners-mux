@@ -102,8 +102,10 @@ func (m *ScaleSetManager) StartRunner(ctx context.Context, cfg *config.RunnerCon
 	}()
 
 	log.Printf("[%s] Initializing listener", cfg.Name)
-	listenerMaxRunners := maxWorkers // We share the global max workers for scaleset
-
+	listenerMaxRunners := maxWorkers // Default to global max workers
+	if cfg.MaxRunners > 0 {
+		listenerMaxRunners = cfg.MaxRunners // Override for this scale set
+	}
 	lsnr, err := listener.New(sessionClient, listener.Config{
 		ScaleSetID: scaleSet.ID,
 		MaxRunners: listenerMaxRunners,

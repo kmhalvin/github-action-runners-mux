@@ -16,6 +16,7 @@ type RunnerConfig struct {
 	Dir          string         `yaml:"dir,omitempty"`            // For standalone
 	PAT          string         `yaml:"pat,omitempty"`            // For scaleset
 	ScaleSetName string         `yaml:"scale_set_name,omitempty"` // For scaleset
+	MaxRunners   int            `yaml:"max_runners,omitempty"`    // Override global max_workers
 	Labels       []string       `yaml:"labels,omitempty"`
 	Group        string         `yaml:"group,omitempty"`
 }

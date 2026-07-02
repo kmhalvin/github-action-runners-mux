@@ -79,6 +79,7 @@ environment:
 | `runners[].dir` | **Yes (Standalone)** | Host directory to store isolated runner configuration |
 | `runners[].pat` | **Yes (Scale Set)** | Personal Access Token with repo/org permissions |
 | `runners[].scale_set_name`| **Yes (Scale Set)** | Scale Set name (used as workflow `runs-on` label) |
+| `runners[].max_runners` | No (Scale Set) | Limit max concurrency for this specific scale set (Overrides global `max_workers`) |
 | `runners[].labels` | No | Array of additional labels for workflow targeting |
 | `runners[].group` | No | Runner group name (default: `"Default"`) |
 
