@@ -30,7 +30,7 @@ The `multi-listener-runner` project intercepts the internal execution flow of th
 - **Verification:** Verify that `worker-shim` accurately captures `*exec.ExitError` from the real worker and propagates the exact int value.
 
 ### 6. Base Image & OS Dependencies
-- We build our own image from `ubuntu:22.04` (jammy). There is **no third-party base image dependency**.
+- We build our own image from `ubuntu:24.04` (noble). There is **no third-party base image dependency**.
 - The image uses `dumb-init` as PID 1 for proper zombie reaping, and configures `en_US.UTF-8` locale.
 - **User Setup:** runner UID=1001, GID=121, docker GID=500. These must stay consistent for volume permission compatibility.
 - **Docker:** We install Docker CE (docker-ce, docker-ce-cli, docker-buildx-plugin, containerd.io, docker-compose-plugin) from Docker's official APT repository (`https://download.docker.com/linux/ubuntu`), NOT Ubuntu's `docker.io` package.
@@ -55,8 +55,8 @@ The following dependencies must be maintained independently:
 - **Action:** If you need to pin a version, replace the API call with a hardcoded version string.
 
 #### 7d. Ubuntu Base OS
-- We use `ubuntu:22.04` (jammy, LTS until April 2027).
-- **Action:** When migrating to a newer Ubuntu LTS (e.g., 24.04 noble), update the Docker CE APT source line and verify all package names still exist.
+- We use `ubuntu:24.04` (noble, LTS).
+- **Action:** When migrating to a newer Ubuntu LTS, update the Docker CE APT source line and verify all package names still exist.
 
 ### 8. Ephemeral Worker Isolation & Cleanup
 - **Constraint:** Ephemeral worker containers MUST NEVER mount the host's `/opt/runners` volume. Doing so exposes the `.credentials` files of all registered runners to the CI job, creating a severe vulnerability.
@@ -69,3 +69,12 @@ The following dependencies must be maintained independently:
 ### 10. Config Sync & Deregistration
 - **Constraint:** The official runner does not automatically deregister itself when removed from a local config file.
 - **Mechanism:** The proxy caches registration tokens in `.mux-meta.json` inside the runner's directory upon registration. When a runner is removed from `config.yaml`, the orchestrator uses this cached token to execute `./config.sh remove --token <token>` before physically deleting the directory. This synchronization logic must be preserved to prevent ghost runners in GitHub.
+
+### 11. Dual-Boot Worker Launcher (Hybrid Architecture)
+- **Constraint:** The `github-mux-worker` image uses a single `cmd/worker-launcher` that acts as a dual-boot proxy. It listens on TCP `:9000` (for Standalone proxy streams) and HTTP `:9001` (for Scale Set JIT payloads via `/start`).
+- **Mechanism:** A strict `sync.Once` block MUST protect the execution of `startContainer()`. This guarantees that if both ports are hit simultaneously (or consecutively), the container only ever executes the runner payload once, locking itself permanently into either Standalone or Scale Set mode.
+- **Shutdown Safety:** The `/wait` endpoint MUST implement a graceful timeout (e.g., 5 seconds) after `waitFetched` is closed. This ensures the container exits cleanly even if the Orchestrator crashes or fails to scrape the final exit code.
+
+### 12. Universal Warm Pool
+- **Constraint:** The Orchestrator maintains a centralized warm pool that serves both Standalone and Scale Set managers.
+- **Mechanism:** Containers in the warm pool (`github-mux-warm-*`) are completely unconfigured and mode-agnostic. The Orchestrator does not differentiate them until it claims one using `AllocateStandalone` (for TCP) or `AllocateJIT` (for HTTP). The Orchestrator is purely responsible for container lifecycle and capacity, NOT runner authentication.
