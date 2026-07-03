@@ -5,7 +5,7 @@ description: Verification checklist and maintenance guide for integrating with t
 
 # Actions-Runner Integration Maintenance Guide
 
-The `github-action-runners-mux` project intercepts the internal execution flow of the official GitHub Actions runner by swapping binaries. When the official runner version is updated, agents must verify the following integration points remain stable:
+The `github-mux` project intercepts the internal execution flow of the official GitHub Actions runner by swapping binaries. When the official runner version is updated, agents must verify the following integration points remain stable:
 
 ### 1. Binary Interception Paths
 - We rely on replacing `/actions-runner/bin/Runner.Listener` and `/actions-runner/bin/Runner.Worker`.
@@ -20,13 +20,13 @@ The `github-action-runners-mux` project intercepts the internal execution flow o
 - **Action:** If arguments change (e.g., new flags or configuration payload), `cmd/worker-shim/main.go` and `cmd/worker-launcher/main.go` must be updated to correctly proxy these new arguments.
 
 ### 3. Anonymous Pipes & File Descriptors
-- The `worker-shim` binds its local pipes to File Descriptors `3` and `4` via `ExtraFiles`.
-- **Verification:** Ensure the official runner runtime still reads/writes standard unbuffered streams via these descriptors. If the runner switches to named pipes or a different IPC mechanism (like gRPC), the `worker-shim` TCP proxy logic must be completely rewritten.
+- The `worker-launcher` binds its local pipes to File Descriptors `3` and `4` via `cmd.ExtraFiles` when spawning the real `Runner.Worker`. The `worker-shim` merely wraps the file descriptors passed via arguments (`os.Args[2]` and `os.Args[3]`) by the `Runner.Listener` using `os.NewFile()`.
+- **Verification:** Ensure the official runner runtime still reads/writes standard unbuffered streams via these descriptors. If the runner switches to named pipes or a different IPC mechanism (like gRPC), the `worker-shim` and `worker-launcher` TCP proxy logic must be completely rewritten.
 
 ### 4. Graceful Shutdown Signals
 - The `Orchestrator` sends `SIGINT` to the `Runner.Listener` processes to gracefully drain them during shutdown.
 - **Verification:** Check official release notes for any changes to how the runner handles `SIGINT` or `SIGTERM`. It must continue to reject new jobs but wait for active jobs to finish.
-- **Note:** We set `RUNNER_MANUALLY_TRAP_SIG=1` in both Dockerfiles so the runner manually traps signals instead of relying on default .NET handling. If the official runner changes its signal trapping behavior, this env var's effect must be re-verified.
+- **Note:** We set `RUNNER_MANUALLY_TRAP_SIG=1` in both Dockerfiles. This variable is evaluated exclusively by the official `run.sh` bash wrapper (not the `.NET` source code). When set, `run.sh` uses bash job control (`set -m`) to spawn the .NET process in the background and sets a bash trap (`trap 'kill -INT -$PID' INT TERM`) to manually forward signals, bypassing Docker PID 1 quirks. If the official runner modifies `run.sh` signal trapping, this env var's effect must be re-verified.
 
 ### 5. Exit Code Propagation
 - The **worker-launcher** (not the shim) captures `*exec.ExitError` from the real `Runner.Worker` process and extracts the exit code via `exitError.ExitCode()`.
@@ -101,6 +101,6 @@ The following dependencies must be maintained independently:
 ### 14. `actions/scaleset` Go Library Integration
 - **Dependency:** We rely on the official `github.com/actions/scaleset` library to manage Scale Set configurations and retrieve JIT config payloads.
 - **Labeling Mechanism:** We construct a slice of `scaleset.Label` objects and pass them to `client.CreateRunnerScaleSet`. This ensures workflows targeting specific custom labels correctly route to our multiplexer.
-- **JIT Retrieval:** JIT payloads are strictly retrieved via `client.GetRunnerScaleSetJitRunner` on a per-job basis. The Orchestrator injects this JIT payload directly into the warm pool container via HTTP (`/start`).
-- **Verification:** When bumping the `actions/scaleset` dependency version in `go.mod`, verify that the `CreateRunnerScaleSet` struct and the `GetRunnerScaleSetJitRunner` response signature haven't introduced breaking changes.
+- **JIT Retrieval:** JIT payloads are strictly generated and retrieved via `client.GenerateJitRunnerConfig` in `pkg/scaleset/scaler.go` on a per-job basis. The Orchestrator injects this JIT payload directly into the warm pool container via HTTP (`/start`).
+- **Verification:** When bumping the `actions/scaleset` dependency version in `go.mod`, verify that the `CreateRunnerScaleSet` struct and the `GenerateJitRunnerConfig` response signature haven't introduced breaking changes.
 - **Known GHES Limitation (Historical Context):** Be aware that older GitHub Enterprise Server (GHES) versions (like 3.18.x) have a strict ASP.NET model binder that rejects the serialization of the `type: "System"` JSON field sent by the library for labels (yielding a 400 Bad Request). If support for older GHES versions is ever required again, a custom HTTP request bypass (bypassing the library) will be necessary.
