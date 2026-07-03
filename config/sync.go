@@ -39,7 +39,7 @@ func SyncRunners(cfg *Config) {
 		return
 	}
 	baseDir := filepath.Dir(cfg.Runners[0].Dir)
-	
+
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {
 		if os.IsNotExist(err) {

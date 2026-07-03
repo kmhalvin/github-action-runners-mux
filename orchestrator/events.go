@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
@@ -98,7 +97,7 @@ func (o *Orchestrator) watchEvents(since string) {
 
 func (o *Orchestrator) handleContainerDeath(containerID string) {
 	o.mutex.Lock()
-	
+
 	changed := false
 	if ww, ok := o.warmPool[containerID]; ok {
 		delete(o.warmPool, containerID)
@@ -151,4 +150,3 @@ func (o *Orchestrator) evaluateCapacity() {
 		o.pauser.UnlockOthers()
 	}
 }
-

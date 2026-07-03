@@ -11,7 +11,7 @@ type RunnerName string
 // uses it to read the runner's config files without relying on a name match.
 type AllocateRequest struct {
 	RunnerName RunnerName `json:"runner_name"`
-        RunnerDir  string     `json:"runner_dir,omitempty"`
+	RunnerDir  string     `json:"runner_dir,omitempty"`
 }
 
 // AllocateResponse is the orchestrator's response back to the Worker Shim.
@@ -20,8 +20,8 @@ type AllocateRequest struct {
 // container can run Runner.Worker without mounting the shared volume (which
 // would expose all runners' credentials — a security violation).
 type AllocateResponse struct {
-        WorkerIP    string            `json:"worker_ip"`
-        ConfigFiles map[string]string `json:"config_files,omitempty"`
+	WorkerIP    string            `json:"worker_ip"`
+	ConfigFiles map[string]string `json:"config_files,omitempty"`
 }
 
 // WaitResponse is the response from the worker-launcher's /wait endpoint

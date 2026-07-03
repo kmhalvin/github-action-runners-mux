@@ -45,8 +45,8 @@ func (m *Manager) StartAll(cfg *config.Config) error {
 		if rCfg.Mode != "standalone" {
 			continue
 		}
-                c := rCfg
-                wg.Go(func() {
+		c := rCfg
+		wg.Go(func() {
 			if err := InitializeEnvironment(c); err != nil {
 				errCh <- fmt.Errorf("failed to initialize %s: %v", c.Name, err)
 				return
@@ -54,7 +54,7 @@ func (m *Manager) StartAll(cfg *config.Config) error {
 			if err := m.startRunner(c); err != nil {
 				errCh <- fmt.Errorf("failed to start %s: %v", c.Name, err)
 			}
-                })
+		})
 	}
 
 	wg.Wait()
@@ -104,7 +104,7 @@ func (m *Manager) startRunner(cfg *config.RunnerConfig) error {
 
 	m.mutex.Lock()
 	m.listeners[cfg.Name] = rp
-	
+
 	// If the system is globally paused at max capacity, instantly freeze this new listener
 	if m.globalPaused {
 		log.Printf("[%s] System is at max capacity. Instantly freezing new listener (PGID: %d)", cfg.Name, pgid)
@@ -150,7 +150,7 @@ func (m *Manager) streamLogs(name api.RunnerName, r io.Reader, level string) {
 func (m *Manager) LockOthers(activeRunners []api.RunnerName) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	m.globalPaused = true
 
 	activeMap := make(map[api.RunnerName]bool)
@@ -171,7 +171,7 @@ func (m *Manager) LockOthers(activeRunners []api.RunnerName) {
 func (m *Manager) UnlockOthers() {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	m.globalPaused = false
 
 	for name, rp := range m.listeners {

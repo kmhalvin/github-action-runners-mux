@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 
-
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 )
@@ -58,14 +57,14 @@ func (o *Orchestrator) maintainPool() {
 func (o *Orchestrator) startContainer() (*WarmWorker, error) {
 	ctx := context.Background()
 
-        workerEnv := []string{
-                // Pipe runner trace logs to stdout so they appear in `docker logs`.
-                // The runner checks this env var in HostContext.cs and attaches a
-                // StdoutTraceListener that mirrors all trace output (Info+ by default)
-                // to stdout. Without this, logs only go to the _diag folder inside the
-                // container (invisible after AutoRemove).
-                "ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT=true",
-        }
+	workerEnv := []string{
+		// Pipe runner trace logs to stdout so they appear in `docker logs`.
+		// The runner checks this env var in HostContext.cs and attaches a
+		// StdoutTraceListener that mirrors all trace output (Info+ by default)
+		// to stdout. Without this, logs only go to the _diag folder inside the
+		// container (invisible after AutoRemove).
+		"ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT=true",
+	}
 	startDocker := os.Getenv("WORKER_START_DOCKER_SERVICE") == "true"
 	if startDocker {
 		workerEnv = append(workerEnv, "START_DOCKER_SERVICE=true")
@@ -78,11 +77,11 @@ func (o *Orchestrator) startContainer() (*WarmWorker, error) {
 
 	containerName := namePrefixWarm + shortID()
 
-        // NOTE: Worker containers intentionally do NOT mount the runner-data volume.
-        // Mounting it would expose .credentials of ALL registered runners to the CI
-        // job (severe security vulnerability). Instead, the orchestrator injects
-        // only the specific runner's config files via the TCP header at allocation
-        // time. See orchestrator/allocate.go (readRunnerConfigFiles).
+	// NOTE: Worker containers intentionally do NOT mount the runner-data volume.
+	// Mounting it would expose .credentials of ALL registered runners to the CI
+	// job (severe security vulnerability). Instead, the orchestrator injects
+	// only the specific runner's config files via the TCP header at allocation
+	// time. See orchestrator/allocate.go (readRunnerConfigFiles).
 	resp, err := o.dockerCli.ContainerCreate(ctx,
 		&container.Config{
 			Image:      workerImage,

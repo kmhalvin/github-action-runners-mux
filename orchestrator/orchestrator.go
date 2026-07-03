@@ -6,10 +6,9 @@ import (
 	"sync"
 	"time"
 
-
 	"github.com/docker/docker/client"
 	"github.com/kmhalvin/github-action-runners-mux/api"
-        "github.com/kmhalvin/github-action-runners-mux/config"
+	"github.com/kmhalvin/github-action-runners-mux/config"
 )
 
 type GlobalPauser interface {
@@ -41,7 +40,7 @@ type ActiveWorker struct {
 type Orchestrator struct {
 	pauser            GlobalPauser
 	dockerCli         *client.Client
-        config            *config.Config
+	config            *config.Config
 	mutex             sync.Mutex
 	cond              *sync.Cond
 	warmPool          map[string]*WarmWorker
@@ -62,7 +61,7 @@ func NewOrchestrator(pauser GlobalPauser, maxWorkers int, warmWorkers int, cfg *
 	o := &Orchestrator{
 		pauser:            pauser,
 		dockerCli:         cli,
-                config:            cfg,
+		config:            cfg,
 		warmPool:          make(map[string]*WarmWorker),
 		activeWorkers:     make(map[string]*ActiveWorker),
 		activeListeners:   make(map[api.RunnerName]int),
@@ -89,4 +88,3 @@ func (o *Orchestrator) logCapacityLocked() {
 	log.Printf("[Orchestrator] Capacity: %d warm, %d active, %d booting, %d/%d total",
 		len(o.warmPool), len(o.activeWorkers), o.bootingCount, total, o.maxWorkers)
 }
-

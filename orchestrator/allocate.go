@@ -3,13 +3,13 @@ package orchestrator
 import (
 	"bytes"
 	"context"
-        "encoding/base64"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-        "os"
-        "path/filepath"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/kmhalvin/github-action-runners-mux/api"
@@ -95,9 +95,9 @@ func (o *Orchestrator) allocateStandalone(ctx context.Context, runnerName api.Ru
 			return nil, ctx.Err()
 		default:
 		}
-		
+
 		o.cond.Wait()
-		
+
 		if err := ctx.Err(); err != nil {
 			o.mutex.Unlock()
 			return nil, err
@@ -127,8 +127,8 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 	o.evaluateCapacity()
 
 	json.NewEncoder(w).Encode(api.AllocateResponse{
-                WorkerIP:    ww.IPAddress,
-                ConfigFiles: o.readRunnerConfigFiles(payload.RunnerName, payload.RunnerDir),
+		WorkerIP:    ww.IPAddress,
+		ConfigFiles: o.readRunnerConfigFiles(payload.RunnerName, payload.RunnerDir),
 	})
 }
 
@@ -136,11 +136,12 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 // Verified against the actions/runner source (ConfigurationStore.cs):
 //   - .runner       — required by GetSettings(); missing → ArgumentNullException
 //   - .credentials  — required for OAuth authentication during job execution
+//
 // .credentials_rsaparams and .agent are NOT needed (the latter doesn't even
 // exist in the runner source).
 var runnerConfigFileNames = []string{
-        ".runner",
-        ".credentials",
+	".runner",
+	".credentials",
 }
 
 // readRunnerConfigFiles reads the specific runner's config files and returns
@@ -153,43 +154,43 @@ var runnerConfigFileNames = []string{
 // If dir is empty (e.g. older shim), we fall back to looking up the runner by
 // name in the config.
 func (o *Orchestrator) readRunnerConfigFiles(name api.RunnerName, dir string) map[string]string {
-        // Prefer the directory from the shim (authoritative — it's where the shim lives)
-        if dir == "" {
-                // Fallback: look up by name in config
-                if o.config == nil {
-                        log.Printf("[Orchestrator] Warning: no config and no dir provided for runner %s", name)
-                        return nil
-                }
-                for i := range o.config.Runners {
-                        if o.config.Runners[i].Name == name {
-                                dir = o.config.Runners[i].Dir
-                                break
-                        }
-                }
-                if dir == "" {
-                        log.Printf("[Orchestrator] Warning: runner %s not found in config and no dir provided", name)
-                        return nil
-                }
-                log.Printf("[Orchestrator] Using config-lookup dir for runner %s: %s", name, dir)
-        }
+	// Prefer the directory from the shim (authoritative — it's where the shim lives)
+	if dir == "" {
+		// Fallback: look up by name in config
+		if o.config == nil {
+			log.Printf("[Orchestrator] Warning: no config and no dir provided for runner %s", name)
+			return nil
+		}
+		for i := range o.config.Runners {
+			if o.config.Runners[i].Name == name {
+				dir = o.config.Runners[i].Dir
+				break
+			}
+		}
+		if dir == "" {
+			log.Printf("[Orchestrator] Warning: runner %s not found in config and no dir provided", name)
+			return nil
+		}
+		log.Printf("[Orchestrator] Using config-lookup dir for runner %s: %s", name, dir)
+	}
 
-        configFiles := make(map[string]string)
-        for _, fname := range runnerConfigFileNames {
-                data, err := os.ReadFile(filepath.Join(dir, fname))
-                if err != nil {
-                        log.Printf("[Orchestrator] Warning: could not read %s for runner %s: %v", fname, name, err)
-                        continue
-                }
-                configFiles[fname] = base64.StdEncoding.EncodeToString(data)
-        }
+	configFiles := make(map[string]string)
+	for _, fname := range runnerConfigFileNames {
+		data, err := os.ReadFile(filepath.Join(dir, fname))
+		if err != nil {
+			log.Printf("[Orchestrator] Warning: could not read %s for runner %s: %v", fname, name, err)
+			continue
+		}
+		configFiles[fname] = base64.StdEncoding.EncodeToString(data)
+	}
 
-        if len(configFiles) == 0 {
-                log.Printf("[Orchestrator] Warning: no config files found for runner %s in %s", name, dir)
-                return nil
-        }
+	if len(configFiles) == 0 {
+		log.Printf("[Orchestrator] Warning: no config files found for runner %s in %s", name, dir)
+		return nil
+	}
 
-        log.Printf("[Orchestrator] Read %d config files for runner %s from %s", len(configFiles), name, dir)
-        return configFiles
+	log.Printf("[Orchestrator] Read %d config files for runner %s from %s", len(configFiles), name, dir)
+	return configFiles
 }
 
 // AllocateJIT acquires a container and pushes a JIT configuration to it via HTTP.

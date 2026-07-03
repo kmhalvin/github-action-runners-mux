@@ -123,4 +123,3 @@ func (m *ScaleSetManager) StartRunner(ctx context.Context, cfg *config.RunnerCon
 		log.Printf("[%s] Listener run failed: %v", cfg.Name, err)
 	}
 }
-

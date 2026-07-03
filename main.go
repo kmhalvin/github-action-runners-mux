@@ -47,7 +47,7 @@ func main() {
 	}
 	warmWorkers := min(max(cfg.WarmWorkers, 0), maxWorkers)
 
-        orch, err := orchestrator.NewOrchestrator(stdManager, maxWorkers, warmWorkers, cfg)
+	orch, err := orchestrator.NewOrchestrator(stdManager, maxWorkers, warmWorkers, cfg)
 	if err != nil {
 		log.Fatalf("Fatal: failed to initialize Orchestrator: %v", err)
 	}
@@ -82,10 +82,10 @@ func main() {
 	for i := range cfg.Runners {
 		rCfg := &cfg.Runners[i]
 		if rCfg.Mode == "scaleset" {
-                        c := rCfg
-                        wg.Go(func() {
+			c := rCfg
+			wg.Go(func() {
 				ssManager.StartRunner(ctx, c, maxWorkers)
-                        })
+			})
 		}
 	}
 
@@ -118,7 +118,7 @@ func drainAndCleanup(stdManager *standalone.Manager) {
 	for _, rp := range stdManager.GetListeners() {
 		if rp.Active {
 			log.Printf("[%s] Sending SIGINT (Graceful Shutdown) and SIGCONT...", rp.Config.Name)
-			syscall.Kill(-rp.PGID, syscall.SIGCONT)          
+			syscall.Kill(-rp.PGID, syscall.SIGCONT)
 			syscall.Kill(rp.Cmd.Process.Pid, syscall.SIGINT)
 		}
 	}
@@ -135,8 +135,8 @@ func forceKillAll(stdManager *standalone.Manager) {
 	for _, rp := range listeners {
 		if rp.Active {
 			log.Printf("[%s] Force killing...", rp.Config.Name)
-			syscall.Kill(rp.Cmd.Process.Pid, syscall.SIGKILL) 
-			syscall.Kill(-rp.PGID, syscall.SIGCONT)           
+			syscall.Kill(rp.Cmd.Process.Pid, syscall.SIGKILL)
+			syscall.Kill(-rp.PGID, syscall.SIGCONT)
 		}
 	}
 }
