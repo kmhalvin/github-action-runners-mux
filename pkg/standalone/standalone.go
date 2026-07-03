@@ -45,9 +45,8 @@ func (m *Manager) StartAll(cfg *config.Config) error {
 		if rCfg.Mode != "standalone" {
 			continue
 		}
-		wg.Add(1)
-		go func(c *config.RunnerConfig) {
-			defer wg.Done()
+                c := rCfg
+                wg.Go(func() {
 			if err := InitializeEnvironment(c); err != nil {
 				errCh <- fmt.Errorf("failed to initialize %s: %v", c.Name, err)
 				return
@@ -55,7 +54,7 @@ func (m *Manager) StartAll(cfg *config.Config) error {
 			if err := m.startRunner(c); err != nil {
 				errCh <- fmt.Errorf("failed to start %s: %v", c.Name, err)
 			}
-		}(rCfg)
+                })
 	}
 
 	wg.Wait()

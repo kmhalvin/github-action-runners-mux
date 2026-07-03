@@ -19,6 +19,8 @@ ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 ENV AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache
+ENV RUNNER_MANUALLY_TRAP_SIG=1
+ENV ImageOS=ubuntu24
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -118,10 +120,12 @@ RUN curl -L -o actions.tar.gz \
     && tar -zxf actions.tar.gz \
     && rm -f actions.tar.gz \
     && ./bin/installdependencies.sh \
-    && rm -f bin/Runner.Listener \
     && mkdir -p /_work \
     && chown -R runner /_work /actions-runner /opt/hostedtoolcache
 
 # ── Copy our proxy and shims ─────────────────────────────────────────────────
 COPY --from=builder /app/worker-shim /usr/local/bin/worker-shim
 COPY --from=builder /app/worker-launcher /usr/local/bin/worker-launcher
+
+# Run as non-root runner user (CI jobs execute as runner, not root)
+USER runner

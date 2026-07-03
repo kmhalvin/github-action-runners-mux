@@ -18,6 +18,9 @@ type MuxMeta struct {
 }
 
 // InitializeEnvironment checks if the runner is registered and runs config.sh if needed.
+// On every startup it re-injects the worker-shim so that the shim binary always
+// matches the current proxy image (important when the image is updated — existing
+// runners on the runner-data volume would otherwise keep the old shim).
 func InitializeEnvironment(cfg *config.RunnerConfig) error {
 	// Ensure the directory exists
 	if err := os.MkdirAll(cfg.Dir, 0755); err != nil {
@@ -25,9 +28,10 @@ func InitializeEnvironment(cfg *config.RunnerConfig) error {
 	}
 
 	credsFile := filepath.Join(cfg.Dir, ".credentials")
+        alreadyRegistered := false
 	if _, err := os.Stat(credsFile); err == nil {
 		log.Printf("[%s] Runner already registered (found .credentials)", cfg.Name)
-		return nil
+                alreadyRegistered = true
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("failed to check for .credentials: %w", err)
 	}
@@ -41,17 +45,30 @@ func InitializeEnvironment(cfg *config.RunnerConfig) error {
 		if err := cpCmd.Run(); err != nil {
 			return fmt.Errorf("failed to copy runner template to %s: %w", cfg.Dir, err)
 		}
+        }
 
-		// Shim Injection
-		shimSrc := "/usr/local/bin/worker-shim"
-		workerPath := filepath.Join(cfg.Dir, "bin", "Runner.Worker")
+        // ── Always (re)inject the worker-shim ──────────────────────────────────
+        // This runs on every startup, even for already-registered runners, so the
+        // shim binary always matches the current proxy image. Without this, updating
+        // the proxy image would leave existing runners with a stale shim on the
+        // runner-data volume, causing protocol mismatches (e.g. the new
+        // worker-launcher expects a framed header that the old shim doesn't send).
+        shimSrc := "/usr/local/bin/worker-shim"
+        workerPath := filepath.Join(cfg.Dir, "bin", "Runner.Worker")
 
-		log.Printf("[%s] Injecting User-Space Shim...", cfg.Name)
-		shimCp := exec.Command("cp", shimSrc, workerPath)
-		if err := shimCp.Run(); err != nil {
-			return fmt.Errorf("failed to inject shim binary: %w", err)
-		}
-		_ = os.Chmod(workerPath, 0755)
+        log.Printf("[%s] Refreshing worker-shim...", cfg.Name)
+        if err := os.MkdirAll(filepath.Dir(workerPath), 0755); err != nil {
+                return fmt.Errorf("failed to create bin directory: %w", err)
+        }
+        shimCp := exec.Command("cp", shimSrc, workerPath)
+        if err := shimCp.Run(); err != nil {
+                return fmt.Errorf("failed to inject shim binary: %w", err)
+        }
+        _ = os.Chmod(workerPath, 0755)
+
+        // If already registered, we're done — config.sh already ran on a previous boot.
+        if alreadyRegistered {
+                return nil
 	}
 
 	log.Printf("[%s] Runner not registered. Executing config.sh...", cfg.Name)
@@ -98,5 +115,3 @@ func InitializeEnvironment(cfg *config.RunnerConfig) error {
 	log.Printf("[%s] Runner successfully registered", cfg.Name)
 	return nil
 }
-
-

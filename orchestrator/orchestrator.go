@@ -9,6 +9,7 @@ import (
 
 	"github.com/docker/docker/client"
 	"github.com/kmhalvin/github-action-runners-mux/api"
+        "github.com/kmhalvin/github-action-runners-mux/config"
 )
 
 type GlobalPauser interface {
@@ -40,6 +41,7 @@ type ActiveWorker struct {
 type Orchestrator struct {
 	pauser            GlobalPauser
 	dockerCli         *client.Client
+        config            *config.Config
 	mutex             sync.Mutex
 	cond              *sync.Cond
 	warmPool          map[string]*WarmWorker
@@ -51,7 +53,7 @@ type Orchestrator struct {
 	isPaused          bool
 }
 
-func NewOrchestrator(pauser GlobalPauser, maxWorkers int, warmWorkers int) (*Orchestrator, error) {
+func NewOrchestrator(pauser GlobalPauser, maxWorkers int, warmWorkers int, cfg *config.Config) (*Orchestrator, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create docker client: %w", err)
@@ -60,6 +62,7 @@ func NewOrchestrator(pauser GlobalPauser, maxWorkers int, warmWorkers int) (*Orc
 	o := &Orchestrator{
 		pauser:            pauser,
 		dockerCli:         cli,
+                config:            cfg,
 		warmPool:          make(map[string]*WarmWorker),
 		activeWorkers:     make(map[string]*ActiveWorker),
 		activeListeners:   make(map[api.RunnerName]int),

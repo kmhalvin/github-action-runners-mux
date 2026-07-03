@@ -47,7 +47,7 @@ func main() {
 	}
 	warmWorkers := min(max(cfg.WarmWorkers, 0), maxWorkers)
 
-	orch, err := orchestrator.NewOrchestrator(stdManager, maxWorkers, warmWorkers)
+        orch, err := orchestrator.NewOrchestrator(stdManager, maxWorkers, warmWorkers, cfg)
 	if err != nil {
 		log.Fatalf("Fatal: failed to initialize Orchestrator: %v", err)
 	}
@@ -82,11 +82,10 @@ func main() {
 	for i := range cfg.Runners {
 		rCfg := &cfg.Runners[i]
 		if rCfg.Mode == "scaleset" {
-			wg.Add(1)
-			go func(c *config.RunnerConfig) {
-				defer wg.Done()
+                        c := rCfg
+                        wg.Go(func() {
 				ssManager.StartRunner(ctx, c, maxWorkers)
-			}(rCfg)
+                        })
 		}
 	}
 

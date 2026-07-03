@@ -31,6 +31,8 @@ ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 ENV AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache
+ENV RUNNER_MANUALLY_TRAP_SIG=1
+ENV ImageOS=ubuntu24
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
