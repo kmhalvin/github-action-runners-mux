@@ -86,23 +86,21 @@ The following dependencies must be maintained independently:
 - **Mechanism:** A strict `sync.Once` field (`wl.startOnce`) MUST protect the execution of `runStandaloneWorker()` and `runJITWorker()`. This guarantees that if both ports are hit simultaneously (or consecutively), the container only ever executes the runner payload once, locking itself permanently into either Standalone or Scale Set mode.
 - **Shutdown Safety:** The `/wait` endpoint MUST implement a graceful timeout (5 seconds) after `waitFetched` is closed. This ensures the container exits cleanly even if the Orchestrator crashes or fails to scrape the final exit code.
 
-### 12. Universal Warm Pool
-- **Constraint:** The Orchestrator maintains a centralized warm pool that serves both Standalone and Scale Set managers.
-- **Mechanism:** Containers in the warm pool (`github-mux-warm-*`) are completely unconfigured and mode-agnostic. The Orchestrator does not differentiate them until it claims one using `AllocateStandalone` (for TCP) or `AllocateJIT` (for HTTP). The Orchestrator is purely responsible for container lifecycle and capacity, NOT runner authentication.
-
-### 13. Config File Injection via TCP Header (Framed Protocol)
+### 12. Config File Injection via TCP Header (Framed Protocol)
 - **Critical Integration:** Worker containers do NOT mount the shared runner-data volume (security constraint — see Section 8). Instead, the runner's config files (`.runner`, `.credentials`) are injected at allocation time via a framed TCP header.
 - **Protocol:** The worker-shim sends a 4-byte big-endian length prefix followed by JSON payload (`{"config_files": {".runner": "<base64>", ".credentials": "<base64>"}}`) as the first bytes on the TCP connection, BEFORE the raw pipe bridge begins. The worker-launcher reads this header, decodes the base64 data, and writes the files to `/actions-runner/` before spawning `Runner.Worker`.
 - **Why both files:** `ConfigurationStore.GetSettings()` reads only the `.runner` file for settings. However, `.runner` references `.credentials` for the auth credential, so both must be present. Without them, `Runner.Worker` crashes with `ArgumentNullException: 'configuredSettings'`.
 - **Verification:** If the framed header protocol changes, `cmd/worker-shim/main.go` (`writeFramedHeader`) and `cmd/worker-launcher/main.go` (`readFramedHeader`, `writeConfigFiles`) must be updated in sync.
 - **Runner Dir Resolution:** The shim derives the runner directory from its own executable path (`filepath.Dir(filepath.Dir(os.Executable()))`), since the shim is installed at `<cfg.Dir>/bin/Runner.Worker`. It sends this directory path to the orchestrator so the correct config files can be read.
 
-### 14. Pipe Streaming Invariants (Deadlock Prevention)
+### 13. Pipe Streaming Invariants (Deadlock Prevention)
 - **Worker-Launcher — close `workerWrite` + `wg.Wait()`:** After `Runner.Worker` exits (`cmd.Wait()` returns), the worker-launcher MUST close `workerWrite` (the child's write-end of the pipe) so that `io.Copy(conn, shimRead)` gets EOF and finishes flushing remaining data to the shim. Then `wg.Wait()` ensures all pipe data is fully flushed to TCP before reporting the exit code. Without this, the shim deadlocks waiting for the exit code, the 5s timeout fires, and the wrong exit code (1) is reported instead of the real one.
 - **Worker-Shim — `<-errChan` (wait for ONE stream, not both):** The shim must wait for only ONE of two `io.Copy` goroutines to finish (`<-errChan`), NOT both. Waiting for both deadlocks because Stream 1 (listener→TCP) blocks on the listener's pipe, which only closes when the shim process exits. Stream 2 (TCP→listener) finishes when the worker-launcher closes the connection after flushing. Once Stream 2 finishes, the shim fetches the exit code and exits, which kills Stream 1 via `os.Exit`.
 - **Verification:** If anyone refactors the streaming logic in either `cmd/worker-shim/main.go` or `cmd/worker-launcher/main.go`, these ordering invariants MUST be preserved.
 
-### 15. Go Version Requirement
-- The project uses `sync.WaitGroup.Go()` (added in Go 1.25) across all files with WaitGroup patterns: `cmd/worker-launcher/main.go`, `main.go`, and `pkg/standalone/standalone.go`.
-- **Minimum Go version:** 1.25 (go.mod specifies `go 1.26.3`).
-- **Verification:** If the toolchain is downgraded below Go 1.25, the build will break. `wg.Go(func() { ... })` replaces the older `wg.Add(1); go func() { defer wg.Done(); ... }()` pattern.
+### 14. `actions/scaleset` Go Library Integration
+- **Dependency:** We rely on the official `github.com/actions/scaleset` library to manage Scale Set configurations and retrieve JIT config payloads.
+- **Labeling Mechanism:** We construct a slice of `scaleset.Label` objects and pass them to `client.CreateRunnerScaleSet`. This ensures workflows targeting specific custom labels correctly route to our multiplexer.
+- **JIT Retrieval:** JIT payloads are strictly retrieved via `client.GetRunnerScaleSetJitRunner` on a per-job basis. The Orchestrator injects this JIT payload directly into the warm pool container via HTTP (`/start`).
+- **Verification:** When bumping the `actions/scaleset` dependency version in `go.mod`, verify that the `CreateRunnerScaleSet` struct and the `GetRunnerScaleSetJitRunner` response signature haven't introduced breaking changes.
+- **Known GHES Limitation (Historical Context):** Be aware that older GitHub Enterprise Server (GHES) versions (like 3.18.x) have a strict ASP.NET model binder that rejects the serialization of the `type: "System"` JSON field sent by the library for labels (yielding a 400 Bad Request). If support for older GHES versions is ever required again, a custom HTTP request bypass (bypassing the library) will be necessary.
