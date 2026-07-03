@@ -12,7 +12,7 @@ services:
     stop_grace_period: 30m
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./config.sample.yaml:/etc/multi-listener/config.yaml:ro
+      - ./config.sample.yaml:/etc/github-mux/config.yaml:ro
       - runner-data:/opt/runners
 
   github-mux-worker:

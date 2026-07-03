@@ -52,4 +52,4 @@ COPY --from=builder /app/proxy /usr/local/bin/proxy
 COPY --from=builder /app/worker-shim /usr/local/bin/worker-shim
 
 WORKDIR /opt/runners
-ENTRYPOINT ["/usr/bin/dumb-init", "--", "/usr/local/bin/proxy", "/etc/multi-listener/config.yaml"]
+ENTRYPOINT ["/usr/bin/dumb-init", "--", "/usr/local/bin/proxy", "/etc/github-mux/config.yaml"]

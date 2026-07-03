@@ -60,7 +60,7 @@ jobs:
 ```
 
 ### 4. Docker-in-Docker (Optional)
-To allow workflows to run Docker commands natively inside the ephemeral workers, add the following environment variable to the `multi-runner-proxy` service in your `docker-compose.yml`:
+To allow workflows to run Docker commands natively inside the ephemeral workers, add the following environment variable to the `github-mux-proxy` service in your `docker-compose.yml`:
 ```yaml
 environment:
   - WORKER_START_DOCKER_SERVICE=true
