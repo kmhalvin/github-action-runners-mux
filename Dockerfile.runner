@@ -5,8 +5,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-# Build worker-shim and worker-launcher
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o worker-shim ./cmd/worker-shim
+# Build worker-launcher
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o worker-launcher ./cmd/worker-launcher
 
 # Runtime image built on Ubuntu 24.04 (noble)
@@ -124,7 +123,6 @@ RUN curl -L -o actions.tar.gz \
     && chown -R runner /_work /actions-runner /opt/hostedtoolcache
 
 # ── Copy our proxy and shims ─────────────────────────────────────────────────
-COPY --from=builder /app/worker-shim /usr/local/bin/worker-shim
 COPY --from=builder /app/worker-launcher /usr/local/bin/worker-launcher
 
 # Run as non-root runner user (CI jobs execute as runner, not root)
