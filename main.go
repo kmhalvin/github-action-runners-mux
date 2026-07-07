@@ -96,7 +96,7 @@ func main() {
 
 	// 7. Initialize Multiplexer
 	multiplexer := mux.NewMultiplexer(sqliteDB, queries, stdManager, ssManager)
-	
+
 	// Link multiplexer as the status reporter for orchestrator events
 	orch.SetStatusReporter(multiplexer)
 
@@ -135,7 +135,7 @@ func main() {
 			ScaleSetName: r.ScaleSetName,
 			MaxRunners:   int(r.MaxRunners),
 		}
-		
+
 		if r.Labels != "" {
 			cfg.Labels = strings.Split(r.Labels, ",")
 		}
@@ -184,11 +184,4 @@ func main() {
 			_ = multiplexer.RemoveRunner(context.Background(), r.Name, true, r.Mode)
 		}
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

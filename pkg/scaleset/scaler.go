@@ -6,9 +6,9 @@ import (
 	"log"
 	"sync"
 
-	"github.com/kmhalvin/github-action-runners-mux/orchestrator"
 	"github.com/actions/scaleset"
 	"github.com/google/uuid"
+	"github.com/kmhalvin/github-action-runners-mux/orchestrator"
 )
 
 type Scaler struct {

@@ -18,10 +18,10 @@ import (
 
 // ListenerProcess represents a managed GitHub Actions Runner Listener
 type ListenerProcess struct {
-	Config *config.RunnerConfig
-	Cmd    *exec.Cmd
-	PGID   int
-	Mutex  sync.Mutex
+	Config        *config.RunnerConfig
+	Cmd           *exec.Cmd
+	PGID          int
+	Mutex         sync.Mutex
 	State         mux.RunnerState
 	Error         string
 	ActiveWorkers int
@@ -46,7 +46,7 @@ func (m *Manager) Start(ctx context.Context, cfg config.RunnerConfig) error {
 		m.mutex.Unlock()
 		return fmt.Errorf("runner %s is already running or not offline", cfg.Name)
 	}
-	
+
 	rp := &ListenerProcess{
 		Config: &cfg,
 		State:  mux.StateRegistering,
@@ -68,7 +68,7 @@ func (m *Manager) Start(ctx context.Context, cfg config.RunnerConfig) error {
 
 func (m *Manager) startRunner(cfg *config.RunnerConfig, rp *ListenerProcess) error {
 	log.Printf("[%s] Starting Listener via Go command...", cfg.Name)
-	
+
 	cmd := exec.Command("./bin/Runner.Listener", "run", "--startuptype", "service")
 	cmd.Dir = cfg.Dir
 
@@ -145,12 +145,12 @@ func (m *Manager) Stop(name string, force bool) error {
 		m.mutex.Unlock()
 		return fmt.Errorf("runner %s not found", name)
 	}
-	
+
 	if rp.State == mux.StateOffline {
 		m.mutex.Unlock()
 		return nil
 	}
-	
+
 	pgid := rp.PGID
 	rp.State = mux.StateDraining
 	m.mutex.Unlock()
@@ -162,7 +162,7 @@ func (m *Manager) Stop(name string, force bool) error {
 		// Ensure it's not paused before sending SIGINT, otherwise it won't process it
 		_ = syscall.Kill(-pgid, syscall.SIGCONT)
 		err = syscall.Kill(-pgid, syscall.SIGINT)
-		
+
 		if err == nil {
 			// Wait for graceful exit
 			done := make(chan struct{})
@@ -170,7 +170,7 @@ func (m *Manager) Stop(name string, force bool) error {
 				rp.Cmd.Wait()
 				close(done)
 			}()
-			
+
 			select {
 			case <-done:
 			case <-time.After(30 * time.Minute):
@@ -179,19 +179,19 @@ func (m *Manager) Stop(name string, force bool) error {
 			}
 		}
 	}
-	
+
 	return err
 }
 
 func (m *Manager) GetStatus(name string) (mux.RunnerStatus, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	rp, exists := m.listeners[name]
 	if !exists {
 		return mux.RunnerStatus{}, fmt.Errorf("runner %s not found", name)
 	}
-	
+
 	return mux.RunnerStatus{
 		Name:          rp.Config.Name,
 		Mode:          "standalone",
@@ -204,7 +204,7 @@ func (m *Manager) GetStatus(name string) (mux.RunnerStatus, error) {
 func (m *Manager) ListRunners() []mux.RunnerStatus {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	var statuses []mux.RunnerStatus
 	for name, rp := range m.listeners {
 		statuses = append(statuses, mux.RunnerStatus{

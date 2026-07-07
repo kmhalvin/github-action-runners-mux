@@ -58,16 +58,16 @@ func (api *API) MountRoutes(router *http.ServeMux) {
 	router.HandleFunc("GET /api/v1/runners", api.listRunners)
 	router.HandleFunc("POST /api/v1/runners", api.createRunner)
 	router.HandleFunc("DELETE /api/v1/runners/{name}", api.deleteRunner)
-	
+
 	router.HandleFunc("GET /api/v1/status", api.getStatus)
-	
+
 	router.HandleFunc("GET /api/v1/settings", api.getSettings)
 	router.HandleFunc("PUT /api/v1/settings", api.updateSettings)
-	
+
 	router.HandleFunc("GET /api/v1/settings/domains", api.listDomains)
 	router.HandleFunc("POST /api/v1/settings/domains", api.addDomain)
 	router.HandleFunc("DELETE /api/v1/settings/domains/{id}", api.deleteDomain)
-	
+
 	router.HandleFunc("GET /api/v1/events", api.sse.Handler())
 }
 
@@ -129,7 +129,7 @@ func (api *API) createRunner(w http.ResponseWriter, r *http.Request) {
 
 	// Persist to DB first
 	labelsStr := strings.Join(payload.Labels, ",")
-	
+
 	dbRunner, err := api.queries.CreateRunner(r.Context(), sqlc.CreateRunnerParams{
 		Name:         payload.Name,
 		Mode:         payload.Mode,
@@ -205,7 +205,7 @@ func (api *API) deleteRunner(w http.ResponseWriter, r *http.Request) {
 			// Small delay to let draining finish if not forced
 			time.Sleep(2 * time.Second)
 			_ = api.mux.RemoveRunner(context.Background(), rName, true, "standalone") // Ensure killed
-			
+
 			// For cleanup, we can just remove the directory, GitHub will eventually timeout the session
 			// or we can run config.sh remove if token is still valid.
 			// Let's rely on the simple directory removal for now since token is in DB.
@@ -225,12 +225,12 @@ func (api *API) getSettings(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	maxStr, _ := api.queries.GetSetting(ctx, "max_workers")
 	warmStr, _ := api.queries.GetSetting(ctx, "warm_workers")
-	
+
 	max, _ := strconv.Atoi(maxStr)
 	warm, _ := strconv.Atoi(warmStr)
-	
+
 	WriteJSON(w, http.StatusOK, map[string]int{
-		"max_workers": max,
+		"max_workers":  max,
 		"warm_workers": warm,
 	})
 }

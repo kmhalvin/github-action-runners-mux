@@ -1,13 +1,14 @@
 package orchestrator
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"sync"
 	"time"
+
 	"github.com/docker/docker/client"
 	"github.com/kmhalvin/github-action-runners-mux/db/sqlc"
-	"database/sql"
 )
 
 type GlobalPauser interface {
@@ -115,8 +116,8 @@ func (o *Orchestrator) GetStatus() map[string]interface{} {
 	o.mutex.Lock()
 	defer o.mutex.Unlock()
 	return map[string]interface{}{
-		"max_workers":  o.maxWorkers,
-		"warm_workers": o.warmWorkersConfig,
+		"max_workers":    o.maxWorkers,
+		"warm_workers":   o.warmWorkersConfig,
 		"warm_pool_size": len(o.warmPool),
 		"active_workers": len(o.activeWorkers),
 		"booting_count":  o.bootingCount,

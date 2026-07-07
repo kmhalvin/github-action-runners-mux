@@ -27,7 +27,7 @@ func NewSSEHub() *SSEHub {
 func (h *SSEHub) Broadcast(eventType string, data interface{}) {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
-	
+
 	event := SSEEvent{
 		Type: eventType,
 		Data: data,
@@ -57,11 +57,11 @@ func (h *SSEHub) Handler() http.HandlerFunc {
 		}
 
 		clientChan := make(chan SSEEvent, 100)
-		
+
 		h.mutex.Lock()
 		h.clients[clientChan] = true
 		h.mutex.Unlock()
-		
+
 		defer func() {
 			h.mutex.Lock()
 			delete(h.clients, clientChan)

@@ -47,7 +47,7 @@ type Multiplexer struct {
 	queries    *sqlc.Queries
 	standalone Runner
 	scaleset   Runner
-	
+
 	mu sync.RWMutex
 }
 
@@ -63,11 +63,12 @@ func NewMultiplexer(db *sql.DB, queries *sqlc.Queries, standalone Runner, scales
 // AddRunner dynamically adds and starts a runner
 func (m *Multiplexer) AddRunner(ctx context.Context, cfg config.RunnerConfig) error {
 	var err error
-	if cfg.Mode == "standalone" || cfg.Mode == "" {
+	switch cfg.Mode {
+	case "standalone", "":
 		err = m.standalone.Start(ctx, cfg)
-	} else if cfg.Mode == "scaleset" {
+	case "scaleset":
 		err = m.scaleset.Start(ctx, cfg)
-	} else {
+	default:
 		return fmt.Errorf("unknown runner mode: %s", cfg.Mode)
 	}
 
@@ -81,9 +82,10 @@ func (m *Multiplexer) AddRunner(ctx context.Context, cfg config.RunnerConfig) er
 
 // RemoveRunner gracefully or forcefully stops a runner
 func (m *Multiplexer) RemoveRunner(ctx context.Context, name string, force bool, mode string) error {
-	if mode == "standalone" {
+	switch mode {
+	case "standalone":
 		return m.standalone.Stop(name, force)
-	} else if mode == "scaleset" {
+	case "scaleset":
 		return m.scaleset.Stop(name, force)
 	}
 	return fmt.Errorf("unknown runner mode: %s", mode)
@@ -92,14 +94,14 @@ func (m *Multiplexer) RemoveRunner(ctx context.Context, name string, force bool,
 // GetRunnerStatuses returns the combined status of all runners
 func (m *Multiplexer) GetRunnerStatuses() []RunnerStatus {
 	var statuses []RunnerStatus
-	
+
 	if m.standalone != nil {
 		statuses = append(statuses, m.standalone.ListRunners()...)
 	}
 	if m.scaleset != nil {
 		statuses = append(statuses, m.scaleset.ListRunners()...)
 	}
-	
+
 	return statuses
 }
 

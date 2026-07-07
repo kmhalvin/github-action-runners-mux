@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+
 	"github.com/kmhalvin/github-action-runners-mux/web"
 )
 
@@ -26,7 +27,7 @@ func ServeDashboard(api *API, port string) {
 			http.NotFound(w, r)
 			return
 		}
-		
+
 		// Try to serve the exact file
 		f, err := subFS.Open(strings.TrimPrefix(r.URL.Path, "/"))
 		if err == nil {

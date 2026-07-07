@@ -84,7 +84,7 @@ func ImportFromYAML(ctx context.Context, db *sql.DB, queries *sqlc.Queries, yaml
 		}
 
 		var token, dir, pat, ssName string
-		
+
 		if mode == "standalone" {
 			token = r.Token
 			dir = r.Dir

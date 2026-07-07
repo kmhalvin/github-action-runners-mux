@@ -20,8 +20,8 @@ import (
 )
 
 type ScaleSetProcess struct {
-	Config *config.RunnerConfig
-	Cancel context.CancelFunc
+	Config        *config.RunnerConfig
+	Cancel        context.CancelFunc
 	State         mux.RunnerState
 	Error         string
 	ActiveWorkers int
@@ -50,7 +50,7 @@ func (m *ScaleSetManager) Start(ctx context.Context, cfg config.RunnerConfig) er
 		m.mutex.Unlock()
 		return fmt.Errorf("scaleset runner %s is already running", cfg.Name)
 	}
-	
+
 	rp := &ScaleSetProcess{
 		Config: &cfg,
 		State:  mux.StateRegistering,
@@ -188,16 +188,16 @@ func (m *ScaleSetManager) Stop(name string, force bool) error {
 	if !exists {
 		return fmt.Errorf("scaleset runner %s not found", name)
 	}
-	
+
 	if rp.State == mux.StateOffline {
 		return nil
 	}
-	
+
 	rp.State = mux.StateDraining
 	if rp.Cancel != nil {
 		rp.Cancel()
 	}
-	
+
 	return nil
 }
 
@@ -208,7 +208,7 @@ func (m *ScaleSetManager) GetStatus(name string) (mux.RunnerStatus, error) {
 	if !exists {
 		return mux.RunnerStatus{}, fmt.Errorf("scaleset runner %s not found", name)
 	}
-	
+
 	return mux.RunnerStatus{
 		Name:          rp.Config.Name,
 		Mode:          "scaleset",
@@ -221,7 +221,7 @@ func (m *ScaleSetManager) GetStatus(name string) (mux.RunnerStatus, error) {
 func (m *ScaleSetManager) ListRunners() []mux.RunnerStatus {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	var statuses []mux.RunnerStatus
 	for name, rp := range m.processes {
 		statuses = append(statuses, mux.RunnerStatus{

@@ -168,17 +168,17 @@ func (o *Orchestrator) readRunnerConfigFiles(name string, dir string) map[string
 			log.Printf("[Orchestrator] Warning: no queries and no dir provided for runner %s", name)
 			return nil
 		}
-		
+
 		runner, err := o.queries.GetRunnerByName(context.Background(), name)
 		if err != nil {
 			log.Printf("[Orchestrator] Warning: runner %s not found in DB and no dir provided", name)
 			return nil
 		}
-		
+
 		if runner.Dir != "" {
 			dir = runner.Dir
 		}
-		
+
 		if dir == "" {
 			log.Printf("[Orchestrator] Warning: runner %s dir is empty in DB", name)
 			return nil
