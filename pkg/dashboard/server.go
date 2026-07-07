@@ -1,9 +1,11 @@
 package dashboard
 
 import (
+	"io/fs"
 	"log"
 	"net/http"
 	"strings"
+	"github.com/kmhalvin/github-action-runners-mux/web"
 )
 
 func ServeDashboard(api *API, port string) {
@@ -12,15 +14,30 @@ func ServeDashboard(api *API, port string) {
 	// Mount API Routes
 	api.MountRoutes(router)
 
-	// Fallback to embedded static files (to be added in Phase 2)
-	// For now, return a placeholder for the frontend
+	// Setup embedded filesystem
+	subFS, err := fs.Sub(web.Assets, "dist")
+	if err != nil {
+		log.Fatalf("[Dashboard] Failed to load embedded assets: %v", err)
+	}
+	fileServer := http.FileServer(http.FS(subFS))
+
 	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<h1>Dashboard Backend is Running</h1><p>Frontend (Phase 2) will be embedded here.</p>`))
+		
+		// Try to serve the exact file
+		f, err := subFS.Open(strings.TrimPrefix(r.URL.Path, "/"))
+		if err == nil {
+			f.Close()
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+
+		// Fallback to index.html for SPA routing
+		r.URL.Path = "/"
+		fileServer.ServeHTTP(w, r)
 	})
 
 	// Add basic CORS middleware for dev
