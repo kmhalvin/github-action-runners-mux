@@ -25,22 +25,22 @@ func SyncRunners(runners []sqlc.Runner) {
 	// Build a set of currently configured runner directories
 	configuredDirs := make(map[string]bool)
 	for _, r := range runners {
-		if !r.Dir.Valid || r.Dir.String == "" {
+		if r.Dir == "" {
 			continue
 		}
-		absPath, err := filepath.Abs(r.Dir.String)
+		absPath, err := filepath.Abs(r.Dir)
 		if err == nil {
 			configuredDirs[absPath] = true
 		} else {
-			configuredDirs[r.Dir.String] = true
+			configuredDirs[r.Dir] = true
 		}
 	}
 
 	// Assuming runners are stored in /opt/runners or derived from the first runner
 	baseDir := "/opt/runners"
 	for _, r := range runners {
-		if r.Dir.Valid && r.Dir.String != "" {
-			baseDir = filepath.Dir(r.Dir.String)
+		if r.Dir != "" {
+			baseDir = filepath.Dir(r.Dir)
 			break
 		}
 	}

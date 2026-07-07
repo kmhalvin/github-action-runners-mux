@@ -78,18 +78,19 @@ func ImportFromYAML(ctx context.Context, db *sql.DB, queries *sqlc.Queries, yaml
 			group = "Default"
 		}
 
-		var maxRunners sql.NullInt64
+		maxRunners := 0
 		if r.MaxRunners > 0 {
-			maxRunners = sql.NullInt64{Int64: int64(r.MaxRunners), Valid: true}
+			maxRunners = r.MaxRunners
 		}
 
-		var token, dir, pat, ssName sql.NullString
+		var token, dir, pat, ssName string
+		
 		if mode == "standalone" {
-			token = sql.NullString{String: r.Token, Valid: r.Token != ""}
-			dir = sql.NullString{String: r.Dir, Valid: r.Dir != ""}
+			token = r.Token
+			dir = r.Dir
 		} else if mode == "scaleset" {
-			pat = sql.NullString{String: r.PAT, Valid: r.PAT != ""}
-			ssName = sql.NullString{String: r.ScaleSetName, Valid: r.ScaleSetName != ""}
+			pat = r.PAT
+			ssName = r.ScaleSetName
 		}
 
 		_, err = qtx.CreateRunner(ctx, sqlc.CreateRunnerParams{
@@ -100,9 +101,9 @@ func ImportFromYAML(ctx context.Context, db *sql.DB, queries *sqlc.Queries, yaml
 			Dir:          dir,
 			Pat:          pat,
 			ScaleSetName: ssName,
-			MaxRunners:   maxRunners,
-			Labels:       sql.NullString{String: labels, Valid: true},
-			RunnerGroup:  sql.NullString{String: group, Valid: true},
+			MaxRunners:   int64(maxRunners),
+			Labels:       labels,
+			RunnerGroup:  group,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to import runner %s: %w", r.Name, err)

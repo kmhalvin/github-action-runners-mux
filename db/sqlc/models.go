@@ -5,7 +5,7 @@
 package sqlc
 
 import (
-	"database/sql"
+	"time"
 )
 
 type EnterpriseDomain struct {
@@ -14,19 +14,19 @@ type EnterpriseDomain struct {
 }
 
 type Runner struct {
-	ID            int64          `json:"id"`
-	Name          string         `json:"name"`
-	Mode          string         `json:"mode"`
-	Url           string         `json:"url"`
-	Token         sql.NullString `json:"token"`
-	Dir           sql.NullString `json:"dir"`
-	Pat           sql.NullString `json:"pat"`
-	ScaleSetName  sql.NullString `json:"scale_set_name"`
-	MaxRunners    sql.NullInt64  `json:"max_runners"`
-	Labels        sql.NullString `json:"labels"`
-	RunnerGroup   sql.NullString `json:"runner_group"`
-	JobsCompleted sql.NullInt64  `json:"jobs_completed"`
-	CreatedAt     sql.NullTime   `json:"created_at"`
+	ID            int64     `json:"id"`
+	Name          string    `json:"name"`
+	Mode          string    `json:"mode"`
+	Url           string    `json:"url"`
+	Token         string    `json:"token"`
+	Dir           string    `json:"dir"`
+	Pat           string    `json:"pat"`
+	ScaleSetName  string    `json:"scale_set_name"`
+	MaxRunners    int64     `json:"max_runners"`
+	Labels        string    `json:"labels"`
+	RunnerGroup   string    `json:"runner_group"`
+	JobsCompleted int64     `json:"jobs_completed"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type Setting struct {

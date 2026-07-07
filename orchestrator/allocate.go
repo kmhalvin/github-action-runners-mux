@@ -168,8 +168,8 @@ func (o *Orchestrator) readRunnerConfigFiles(name string, dir string) map[string
 			return nil
 		}
 		
-		if runner.Dir.Valid {
-			dir = runner.Dir.String
+		if runner.Dir != "" {
+			dir = runner.Dir
 		}
 		
 		if dir == "" {

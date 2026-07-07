@@ -128,22 +128,17 @@ func (api *API) createRunner(w http.ResponseWriter, r *http.Request) {
 	// Persist to DB first
 	labelsStr := strings.Join(payload.Labels, ",")
 	
-	var maxRunners sql.NullInt64
-	if payload.MaxRunners > 0 {
-		maxRunners = sql.NullInt64{Int64: int64(payload.MaxRunners), Valid: true}
-	}
-	
 	dbRunner, err := api.queries.CreateRunner(r.Context(), sqlc.CreateRunnerParams{
 		Name:         payload.Name,
 		Mode:         payload.Mode,
 		Url:          payload.URL,
-		Token:        sql.NullString{String: payload.Token, Valid: payload.Token != ""},
-		Dir:          sql.NullString{String: payload.Dir, Valid: payload.Dir != ""},
-		Pat:          sql.NullString{String: payload.PAT, Valid: payload.PAT != ""},
-		ScaleSetName: sql.NullString{String: payload.ScaleSetName, Valid: payload.ScaleSetName != ""},
-		MaxRunners:   maxRunners,
-		Labels:       sql.NullString{String: labelsStr, Valid: labelsStr != ""},
-		RunnerGroup:  sql.NullString{String: payload.RunnerGroup, Valid: payload.RunnerGroup != ""},
+		Token:        payload.Token,
+		Dir:          payload.Dir,
+		Pat:          payload.PAT,
+		ScaleSetName: payload.ScaleSetName,
+		MaxRunners:   int64(payload.MaxRunners),
+		Labels:       labelsStr,
+		RunnerGroup:  payload.RunnerGroup,
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to save runner: %v", err))
@@ -203,7 +198,7 @@ func (api *API) deleteRunner(w http.ResponseWriter, r *http.Request) {
 	// In a real scenario we'd also call config.sh remove here if standalone,
 	// but for simplicity we rely on config/sync.go to clean it up on next boot,
 	// or we can invoke the cleanup manually. Let's do it manually for instant cleanup.
-	if dbRunner.Mode == "standalone" && dbRunner.Dir.Valid {
+	if dbRunner.Mode == "standalone" && dbRunner.Dir != "" {
 		go func(rName, rDir string) {
 			// Small delay to let draining finish if not forced
 			time.Sleep(2 * time.Second)
@@ -213,7 +208,7 @@ func (api *API) deleteRunner(w http.ResponseWriter, r *http.Request) {
 			// or we can run config.sh remove if token is still valid.
 			// Let's rely on the simple directory removal for now since token is in DB.
 			os.RemoveAll(rDir)
-		}(name, dbRunner.Dir.String)
+		}(name, dbRunner.Dir)
 	}
 
 	api.sse.Broadcast("runner:removed", map[string]string{"name": name})

@@ -28,15 +28,22 @@ import (
 )
 
 const DrainTimeout = 30 * time.Minute
-const DBPath = "/etc/github-mux/github-mux.db"
 const LegacyYAMLPath = "config.yaml"
+
+func getDBPath() string {
+	if path := os.Getenv("DB_PATH"); path != "" {
+		return path
+	}
+	// Default to current directory if not in docker
+	return "github-mux.db"
+}
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	// 1. Initialize Database
-	sqliteDB, err := sql.Open("sqlite3", DBPath)
+	sqliteDB, err := sql.Open("sqlite3", getDBPath())
 	if err != nil {
 		log.Fatalf("Fatal: failed to open database: %v", err)
 	}
@@ -119,18 +126,18 @@ func main() {
 			Name:         r.Name,
 			Mode:         r.Mode,
 			URL:          r.Url,
-			Token:        r.Token.String,
-			Dir:          r.Dir.String,
-			PAT:          r.Pat.String,
-			ScaleSetName: r.ScaleSetName.String,
-			MaxRunners:   int(r.MaxRunners.Int64),
+			Token:        r.Token,
+			Dir:          r.Dir,
+			PAT:          r.Pat,
+			ScaleSetName: r.ScaleSetName,
+			MaxRunners:   int(r.MaxRunners),
 		}
 		
-		if r.Labels.Valid {
-			cfg.Labels = strings.Split(r.Labels.String, ",")
+		if r.Labels != "" {
+			cfg.Labels = strings.Split(r.Labels, ",")
 		}
-		if r.RunnerGroup.Valid {
-			cfg.Group = r.RunnerGroup.String
+		if r.RunnerGroup != "" {
+			cfg.Group = r.RunnerGroup
 		}
 
 		if err := multiplexer.AddRunner(context.Background(), cfg); err != nil {

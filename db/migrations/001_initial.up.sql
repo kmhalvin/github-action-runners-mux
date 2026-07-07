@@ -10,15 +10,15 @@ CREATE TABLE runners (
     name TEXT UNIQUE NOT NULL,
     mode TEXT NOT NULL CHECK (mode IN ('standalone', 'scaleset')),
     url TEXT NOT NULL,
-    token TEXT,              -- registration token (standalone)
-    dir TEXT,                -- runner directory (standalone)
-    pat TEXT,                -- personal access token (scaleset)
-    scale_set_name TEXT,     -- scaleset name (scaleset)
-    max_runners INTEGER DEFAULT 0,
-    labels TEXT DEFAULT '',  -- comma-separated
-    runner_group TEXT DEFAULT 'Default',
-    jobs_completed INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    token TEXT NOT NULL DEFAULT '',              -- registration token (standalone)
+    dir TEXT NOT NULL DEFAULT '',                -- runner directory (standalone)
+    pat TEXT NOT NULL DEFAULT '',                -- personal access token (scaleset)
+    scale_set_name TEXT NOT NULL DEFAULT '',     -- scaleset name (scaleset)
+    max_runners INTEGER NOT NULL DEFAULT 0,
+    labels TEXT NOT NULL DEFAULT '',  -- comma-separated
+    runner_group TEXT NOT NULL DEFAULT 'Default',
+    jobs_completed INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Enterprise domains table

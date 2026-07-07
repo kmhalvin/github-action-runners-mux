@@ -7,6 +7,8 @@ services:
       dockerfile: Dockerfile
     image: github-mux-proxy:latest
     container_name: github-mux
+    environment:
+      - DB_PATH=/etc/github-mux/github-mux.db
     restart: unless-stopped
     # Ensure Docker's stop signal allows the 30-minute graceful drain
     stop_grace_period: 30m

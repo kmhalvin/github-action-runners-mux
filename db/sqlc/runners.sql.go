@@ -19,16 +19,16 @@ INSERT INTO runners (
 `
 
 type CreateRunnerParams struct {
-	Name         string         `json:"name"`
-	Mode         string         `json:"mode"`
-	Url          string         `json:"url"`
-	Token        sql.NullString `json:"token"`
-	Dir          sql.NullString `json:"dir"`
-	Pat          sql.NullString `json:"pat"`
-	ScaleSetName sql.NullString `json:"scale_set_name"`
-	MaxRunners   sql.NullInt64  `json:"max_runners"`
-	Labels       sql.NullString `json:"labels"`
-	RunnerGroup  sql.NullString `json:"runner_group"`
+	Name         string `json:"name"`
+	Mode         string `json:"mode"`
+	Url          string `json:"url"`
+	Token        string `json:"token"`
+	Dir          string `json:"dir"`
+	Pat          string `json:"pat"`
+	ScaleSetName string `json:"scale_set_name"`
+	MaxRunners   int64  `json:"max_runners"`
+	Labels       string `json:"labels"`
+	RunnerGroup  string `json:"runner_group"`
 }
 
 func (q *Queries) CreateRunner(ctx context.Context, arg CreateRunnerParams) (Runner, error) {
