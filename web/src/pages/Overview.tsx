@@ -130,10 +130,12 @@ export default function Overview() {
 										</CardTitle>
 										<Badge variant={
 											runner.status === 'online' ? 'default' : 
-											runner.status === 'busy' ? 'secondary' : 
+											runner.status === 'busy' || runner.status === 'Busy' ? 'secondary' : 
 											runner.status === 'offline' ? 'destructive' : 'outline'
 										}>
-											{runner.status}
+											{runner.status === 'Busy' && runner.mode === 'scaleset' 
+												? `Busy (${runner.active_workers})`
+												: runner.status}
 										</Badge>
 									</div>
 									<CardDescription className="truncate" title={runner.url}>

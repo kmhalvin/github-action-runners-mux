@@ -89,8 +89,9 @@ func (api *API) listRunners(w http.ResponseWriter, r *http.Request) {
 	// Combine DB state with Live state
 	type Combined struct {
 		sqlc.Runner
-		State mux.RunnerState `json:"state"`
-		Error string          `json:"error,omitempty"`
+		State         mux.RunnerState `json:"state"`
+		ActiveWorkers int             `json:"active_workers"`
+		Error         string          `json:"error,omitempty"`
 	}
 
 	var results []Combined
@@ -98,6 +99,7 @@ func (api *API) listRunners(w http.ResponseWriter, r *http.Request) {
 		c := Combined{Runner: dbR, State: mux.StateOffline}
 		if s, ok := statusMap[dbR.Name]; ok {
 			c.State = s.State
+			c.ActiveWorkers = s.ActiveWorkers
 			c.Error = s.Error
 		}
 		results = append(results, c)

@@ -1,5 +1,5 @@
 .agents/skills/*
 !.agents/skills/actions-runner-integration/
 /proxy
-/shim
 /worker-shim
+/worker-launcher

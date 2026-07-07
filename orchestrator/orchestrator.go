@@ -15,6 +15,11 @@ type GlobalPauser interface {
 	UnlockOthers()
 }
 
+type StatusReporter interface {
+	MarkBusy(name string)
+	MarkIdle(name string)
+}
+
 const (
 	labelManaged = "github-mux.managed"
 	labelRunner  = "github-mux.runner"
@@ -50,6 +55,7 @@ type Orchestrator struct {
 	warmWorkersConfig int
 	bootingCount      int
 	isPaused          bool
+	reporter          StatusReporter
 }
 
 func NewOrchestrator(pauser GlobalPauser, maxWorkers int, warmWorkers int, db *sql.DB, queries *sqlc.Queries) (*Orchestrator, error) {
@@ -82,6 +88,10 @@ func NewOrchestrator(pauser GlobalPauser, maxWorkers int, warmWorkers int, db *s
 	go o.maintainPool()
 
 	return o, nil
+}
+
+func (o *Orchestrator) SetStatusReporter(reporter StatusReporter) {
+	o.reporter = reporter
 }
 
 func (o *Orchestrator) logCapacityLocked() {

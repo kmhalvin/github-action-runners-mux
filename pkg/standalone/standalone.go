@@ -22,8 +22,9 @@ type ListenerProcess struct {
 	Cmd    *exec.Cmd
 	PGID   int
 	Mutex  sync.Mutex
-	State  mux.RunnerState
-	Error  string
+	State         mux.RunnerState
+	Error         string
+	ActiveWorkers int
 }
 
 type Manager struct {
@@ -192,10 +193,11 @@ func (m *Manager) GetStatus(name string) (mux.RunnerStatus, error) {
 	}
 	
 	return mux.RunnerStatus{
-		Name:  rp.Config.Name,
-		Mode:  "standalone",
-		State: rp.State,
-		Error: rp.Error,
+		Name:          rp.Config.Name,
+		Mode:          "standalone",
+		State:         rp.State,
+		Error:         rp.Error,
+		ActiveWorkers: rp.ActiveWorkers,
 	}, nil
 }
 
@@ -206,10 +208,11 @@ func (m *Manager) ListRunners() []mux.RunnerStatus {
 	var statuses []mux.RunnerStatus
 	for name, rp := range m.listeners {
 		statuses = append(statuses, mux.RunnerStatus{
-			Name:  name,
-			Mode:  "standalone",
-			State: rp.State,
-			Error: rp.Error,
+			Name:          name,
+			Mode:          "standalone",
+			State:         rp.State,
+			Error:         rp.Error,
+			ActiveWorkers: rp.ActiveWorkers,
 		})
 	}
 	return statuses
@@ -271,8 +274,11 @@ func (m *Manager) UnlockOthers() {
 func (m *Manager) MarkBusy(name string) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	if rp, exists := m.listeners[name]; exists && rp.State == mux.StateOnline {
-		rp.State = mux.StateBusy
+	if rp, exists := m.listeners[name]; exists {
+		rp.ActiveWorkers++
+		if rp.State == mux.StateOnline || rp.State == mux.StatePaused {
+			rp.State = mux.StateBusy
+		}
 	}
 }
 
@@ -280,11 +286,16 @@ func (m *Manager) MarkBusy(name string) {
 func (m *Manager) MarkIdle(name string) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	if rp, exists := m.listeners[name]; exists && rp.State == mux.StateBusy {
-		if m.globalPaused {
-			rp.State = mux.StatePaused
-		} else {
-			rp.State = mux.StateOnline
+	if rp, exists := m.listeners[name]; exists {
+		if rp.ActiveWorkers > 0 {
+			rp.ActiveWorkers--
+		}
+		if rp.ActiveWorkers == 0 && rp.State == mux.StateBusy {
+			if m.globalPaused {
+				rp.State = mux.StatePaused
+			} else {
+				rp.State = mux.StateOnline
+			}
 		}
 	}
 }

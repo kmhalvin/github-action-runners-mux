@@ -96,6 +96,9 @@ func main() {
 
 	// 7. Initialize Multiplexer
 	multiplexer := mux.NewMultiplexer(sqliteDB, queries, stdManager, ssManager)
+	
+	// Link multiplexer as the status reporter for orchestrator events
+	orch.SetStatusReporter(multiplexer)
 
 	// 8. Start Unix socket server for Standalone shim allocations
 	go func() {

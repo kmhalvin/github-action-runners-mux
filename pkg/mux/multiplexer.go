@@ -26,6 +26,7 @@ type RunnerStatus struct {
 	Name          string      `json:"name"`
 	Mode          string      `json:"mode"`
 	State         RunnerState `json:"state"`
+	ActiveWorkers int         `json:"active_workers"`
 	JobsCompleted int         `json:"jobs_completed"`
 	Error         string      `json:"error,omitempty"`
 }
@@ -36,6 +37,8 @@ type Runner interface {
 	Stop(name string, force bool) error
 	GetStatus(name string) (RunnerStatus, error)
 	ListRunners() []RunnerStatus
+	MarkBusy(name string)
+	MarkIdle(name string)
 }
 
 // Multiplexer coordinates runner managers (Standalone and ScaleSet)
@@ -98,4 +101,24 @@ func (m *Multiplexer) GetRunnerStatuses() []RunnerStatus {
 	}
 	
 	return statuses
+}
+
+// MarkBusy marks a runner as busy when a job is allocated
+func (m *Multiplexer) MarkBusy(name string) {
+	if m.standalone != nil {
+		m.standalone.MarkBusy(name)
+	}
+	if m.scaleset != nil {
+		m.scaleset.MarkBusy(name)
+	}
+}
+
+// MarkIdle marks a runner as idle when a job completes
+func (m *Multiplexer) MarkIdle(name string) {
+	if m.standalone != nil {
+		m.standalone.MarkIdle(name)
+	}
+	if m.scaleset != nil {
+		m.scaleset.MarkIdle(name)
+	}
 }

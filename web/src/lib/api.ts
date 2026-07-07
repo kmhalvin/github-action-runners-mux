@@ -6,6 +6,7 @@ export interface RunnerStatus {
 	status: string;
 	url: string;
 	jobs_completed: number;
+	active_workers: number;
 	group?: string;
 }
 

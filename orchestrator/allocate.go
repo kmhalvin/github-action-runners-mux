@@ -43,6 +43,9 @@ func (o *Orchestrator) allocateStandalone(ctx context.Context, runnerName string
 			o.cond.Broadcast()
 
 			o.mutex.Unlock()
+			if o.reporter != nil {
+				o.reporter.MarkBusy(runnerName)
+			}
 			return ww, nil
 		}
 
@@ -84,6 +87,10 @@ func (o *Orchestrator) allocateStandalone(ctx context.Context, runnerName string
 				log.Printf("[Orchestrator] Active container %s died before entering pool, cleaning up", ww.ContainerID[:12])
 				o.handleContainerDeath(ww.ContainerID)
 				return nil, fmt.Errorf("container died immediately after allocation")
+			}
+
+			if o.reporter != nil {
+				o.reporter.MarkBusy(runnerName)
 			}
 
 			return ww, nil

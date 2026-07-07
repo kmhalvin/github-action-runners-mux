@@ -53,7 +53,7 @@ func main() {
 	runnerName := filepath.Base(runnerDir)
 
 	reqBody, _ := json.Marshal(api.AllocateRequest{
-		RunnerName: api.RunnerName(runnerName),
+		RunnerName: runnerName,
 		RunnerDir:  runnerDir,
 	})
 
