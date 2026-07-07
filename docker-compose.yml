@@ -10,9 +10,11 @@ services:
     restart: unless-stopped
     # Ensure Docker's stop signal allows the 30-minute graceful drain
     stop_grace_period: 30m
+    ports:
+      - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./config.sample.yaml:/etc/github-mux/config.yaml:ro
+      - mux-data:/etc/github-mux
       - runner-data:/opt/runners
 
   github-mux-worker:
@@ -25,3 +27,4 @@ services:
 
 volumes:
   runner-data:
+  mux-data:

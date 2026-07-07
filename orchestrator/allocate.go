@@ -15,13 +15,13 @@ import (
 	"github.com/kmhalvin/github-action-runners-mux/api"
 )
 
-func (o *Orchestrator) GetActiveCount(runnerName api.RunnerName) int {
+func (o *Orchestrator) GetActiveCount(runnerName string) int {
 	o.mutex.Lock()
 	defer o.mutex.Unlock()
 	return o.activeListeners[runnerName]
 }
 
-func (o *Orchestrator) allocateStandalone(ctx context.Context, runnerName api.RunnerName) (*WarmWorker, error) {
+func (o *Orchestrator) allocateStandalone(ctx context.Context, runnerName string) (*WarmWorker, error) {
 	o.mutex.Lock()
 
 	for {
@@ -117,7 +117,7 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ww, err := o.allocateStandalone(r.Context(), payload.RunnerName)
+	ww, err := o.allocateStandalone(r.Context(), string(payload.RunnerName))
 	if err != nil {
 		log.Printf("[Orchestrator] Allocation failed: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -128,7 +128,7 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 
 	json.NewEncoder(w).Encode(api.AllocateResponse{
 		WorkerIP:    ww.IPAddress,
-		ConfigFiles: o.readRunnerConfigFiles(payload.RunnerName, payload.RunnerDir),
+		ConfigFiles: o.readRunnerConfigFiles(string(payload.RunnerName), payload.RunnerDir),
 	})
 }
 
@@ -153,25 +153,30 @@ var runnerConfigFileNames = []string{
 // path, so it's guaranteed to be the directory where config.sh wrote the files.
 // If dir is empty (e.g. older shim), we fall back to looking up the runner by
 // name in the config.
-func (o *Orchestrator) readRunnerConfigFiles(name api.RunnerName, dir string) map[string]string {
+func (o *Orchestrator) readRunnerConfigFiles(name string, dir string) map[string]string {
 	// Prefer the directory from the shim (authoritative — it's where the shim lives)
 	if dir == "" {
-		// Fallback: look up by name in config
-		if o.config == nil {
-			log.Printf("[Orchestrator] Warning: no config and no dir provided for runner %s", name)
+		// Fallback: look up by name in DB
+		if o.queries == nil {
+			log.Printf("[Orchestrator] Warning: no queries and no dir provided for runner %s", name)
 			return nil
 		}
-		for i := range o.config.Runners {
-			if o.config.Runners[i].Name == name {
-				dir = o.config.Runners[i].Dir
-				break
-			}
+		
+		runner, err := o.queries.GetRunnerByName(context.Background(), name)
+		if err != nil {
+			log.Printf("[Orchestrator] Warning: runner %s not found in DB and no dir provided", name)
+			return nil
 		}
+		
+		if runner.Dir.Valid {
+			dir = runner.Dir.String
+		}
+		
 		if dir == "" {
-			log.Printf("[Orchestrator] Warning: runner %s not found in config and no dir provided", name)
+			log.Printf("[Orchestrator] Warning: runner %s dir is empty in DB", name)
 			return nil
 		}
-		log.Printf("[Orchestrator] Using config-lookup dir for runner %s: %s", name, dir)
+		log.Printf("[Orchestrator] Using DB-lookup dir for runner %s: %s", name, dir)
 	}
 
 	configFiles := make(map[string]string)
@@ -194,7 +199,7 @@ func (o *Orchestrator) readRunnerConfigFiles(name api.RunnerName, dir string) ma
 }
 
 // AllocateJIT acquires a container and pushes a JIT configuration to it via HTTP.
-func (o *Orchestrator) AllocateJIT(ctx context.Context, runnerName api.RunnerName, jitConfig string) error {
+func (o *Orchestrator) AllocateJIT(ctx context.Context, runnerName string, jitConfig string) error {
 	ww, err := o.allocateStandalone(ctx, runnerName)
 	if err != nil {
 		return fmt.Errorf("failed to allocate worker for JIT: %w", err)

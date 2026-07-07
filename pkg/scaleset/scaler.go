@@ -6,16 +6,14 @@ import (
 	"log"
 	"sync"
 
-	"github.com/kmhalvin/github-action-runners-mux/api"
 	"github.com/kmhalvin/github-action-runners-mux/orchestrator"
-
 	"github.com/actions/scaleset"
 	"github.com/google/uuid"
 )
 
 type Scaler struct {
 	orch           *orchestrator.Orchestrator
-	runnerName     api.RunnerName
+	runnerName     string
 	scaleSetID     int
 	scalesetClient *scaleset.Client
 	maxRunners     int

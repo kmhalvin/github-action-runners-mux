@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"github.com/kmhalvin/github-action-runners-mux/db/sqlc"
 )
 
 // MuxMeta holds the credentials required to deregister a runner from GitHub.
@@ -18,27 +19,31 @@ type MuxMeta struct {
 // previously registered runners in /opt/runners. Any runner directory
 // that has a .credentials file but is no longer in the config is considered
 // stale and will be deregistered from GitHub and cleaned up.
-func SyncRunners(cfg *Config) {
+func SyncRunners(runners []sqlc.Runner) {
 	log.Println("[Sync] Starting configuration sync and stale runner reconciliation...")
 
 	// Build a set of currently configured runner directories
 	configuredDirs := make(map[string]bool)
-	for _, r := range cfg.Runners {
-		absPath, err := filepath.Abs(r.Dir)
+	for _, r := range runners {
+		if !r.Dir.Valid || r.Dir.String == "" {
+			continue
+		}
+		absPath, err := filepath.Abs(r.Dir.String)
 		if err == nil {
 			configuredDirs[absPath] = true
 		} else {
-			configuredDirs[r.Dir] = true
+			configuredDirs[r.Dir.String] = true
 		}
 	}
 
-	// Assuming runners are stored in the parent directory of the first runner,
-	// or defaulting to /opt/runners if we can't infer it.
-	// Since config.yaml sets dir like /opt/runners/org-runner-1, we'll scan the parent dir.
-	if len(cfg.Runners) == 0 {
-		return
+	// Assuming runners are stored in /opt/runners or derived from the first runner
+	baseDir := "/opt/runners"
+	for _, r := range runners {
+		if r.Dir.Valid && r.Dir.String != "" {
+			baseDir = filepath.Dir(r.Dir.String)
+			break
+		}
 	}
-	baseDir := filepath.Dir(cfg.Runners[0].Dir)
 
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {

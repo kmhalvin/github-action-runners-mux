@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kmhalvin/github-action-runners-mux/api"
 	"gopkg.in/yaml.v3"
 )
 
 type RunnerConfig struct {
-	Name         api.RunnerName `yaml:"name"`
+	Name         string         `yaml:"name"`
 	Mode         string         `yaml:"mode"` // "standalone" or "scaleset"
 	URL          string         `yaml:"url"`
 	Token        string         `yaml:"token,omitempty"`          // For standalone
@@ -42,7 +41,7 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("no runners configured")
 	}
 
-	seenNames := make(map[api.RunnerName]bool)
+	seenNames := make(map[string]bool)
 	seenDirs := make(map[string]bool)
 
 	for i := range cfg.Runners {

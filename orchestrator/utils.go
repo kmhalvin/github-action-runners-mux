@@ -6,20 +6,19 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/docker/docker/api/types"
-	"github.com/kmhalvin/github-action-runners-mux/api"
 )
 
 func shortID() string {
 	return uuid.NewString()[:8]
 }
 
-func parseRunnerFromActiveName(name string) api.RunnerName {
+func parseRunnerFromActiveName(name string) string {
 	s := strings.TrimPrefix(name, namePrefixActive)
 	lastDash := strings.LastIndex(s, "-")
 	if lastDash > 0 {
-		return api.RunnerName(s[:lastDash])
+		return s[:lastDash]
 	}
-	return api.RunnerName(s)
+	return s
 }
 
 func firstIP(c types.Container) string {

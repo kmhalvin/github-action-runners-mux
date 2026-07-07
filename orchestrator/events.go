@@ -10,7 +10,6 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
-	"github.com/kmhalvin/github-action-runners-mux/api"
 )
 
 func (o *Orchestrator) recoverState() error {
@@ -99,14 +98,22 @@ func (o *Orchestrator) handleContainerDeath(containerID string) {
 	o.mutex.Lock()
 
 	changed := false
-	if ww, ok := o.warmPool[containerID]; ok {
-		delete(o.warmPool, containerID)
-		log.Printf("[Orchestrator] Warm worker %s died", ww.ContainerID[:12])
-	} else if aw, ok := o.activeWorkers[containerID]; ok {
+
+	if aw, ok := o.activeWorkers[containerID]; ok {
+		if o.queries != nil {
+			err := o.queries.IncrementJobsCompleted(context.Background(), aw.RunnerName)
+			if err != nil {
+				log.Printf("[Orchestrator] Warning: failed to increment job count for %s: %v", aw.RunnerName, err)
+			}
+		}
+
 		delete(o.activeWorkers, containerID)
 		o.activeListeners[aw.RunnerName]--
 		log.Printf("[Orchestrator] Active worker for [%s] died (%s)", aw.RunnerName, containerID[:12])
 		changed = true
+	} else if ww, ok := o.warmPool[containerID]; ok {
+		delete(o.warmPool, containerID)
+		log.Printf("[Orchestrator] Warm worker %s died", ww.ContainerID[:12])
 	} else {
 		o.mutex.Unlock()
 		return
@@ -136,7 +143,7 @@ func (o *Orchestrator) evaluateCapacity() {
 		log.Printf("[Orchestrator] MAX CAPACITY REACHED. Freezing idle listeners...")
 		o.isPaused = true
 
-		var active []api.RunnerName
+		var active []string
 		for rName, count := range o.activeListeners {
 			if count > 0 {
 				active = append(active, rName)
