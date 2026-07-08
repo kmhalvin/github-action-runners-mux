@@ -13,8 +13,9 @@ import (
 )
 
 type MuxMeta struct {
-	Token string `json:"token"`
-	URL   string `json:"url"`
+	RunnerName string `json:"runner_name,omitempty"`
+	Token      string `json:"token"`
+	URL        string `json:"url"`
 }
 
 // InitializeEnvironment checks if the runner is registered and runs config.sh if needed.
@@ -26,6 +27,15 @@ func InitializeEnvironment(cfg *config.RunnerConfig) error {
 	if err := os.MkdirAll(cfg.Dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", cfg.Dir, err)
 	}
+
+	// Always save/update the meta file (especially important for upgrading older registered runners)
+	meta := MuxMeta{
+		RunnerName: cfg.Name,
+		Token:      cfg.Token,
+		URL:        cfg.URL,
+	}
+	metaData, _ := json.Marshal(meta)
+	_ = os.WriteFile(filepath.Join(cfg.Dir, ".mux-meta.json"), metaData, 0644)
 
 	credsFile := filepath.Join(cfg.Dir, ".credentials")
 	alreadyRegistered := false
@@ -103,14 +113,6 @@ func InitializeEnvironment(cfg *config.RunnerConfig) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("[%s] failed to register runner: %w", cfg.Name, err)
 	}
-
-	// Save the token and URL for future deregistration (if the runner is removed from config)
-	meta := MuxMeta{
-		Token: cfg.Token,
-		URL:   cfg.URL,
-	}
-	metaData, _ := json.Marshal(meta)
-	_ = os.WriteFile(filepath.Join(cfg.Dir, ".mux-meta.json"), metaData, 0644)
 
 	log.Printf("[%s] Runner successfully registered", cfg.Name)
 	return nil

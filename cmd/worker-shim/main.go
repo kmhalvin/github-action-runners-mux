@@ -51,7 +51,14 @@ func main() {
 	execPath, _ := os.Executable()
 	runnerDir := filepath.Dir(filepath.Dir(execPath))
 	runnerName := filepath.Base(runnerDir)
-
+	var meta struct {
+		RunnerName string `json:"runner_name"`
+	}
+	if nameBytes, err := os.ReadFile(filepath.Join(runnerDir, ".mux-meta.json")); err == nil {
+		if err := json.Unmarshal(nameBytes, &meta); err == nil && meta.RunnerName != "" {
+			runnerName = meta.RunnerName
+		}
+	}
 	reqBody, _ := json.Marshal(api.AllocateRequest{
 		RunnerName: runnerName,
 		RunnerDir:  runnerDir,
