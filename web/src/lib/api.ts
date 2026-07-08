@@ -1,21 +1,44 @@
 export const API_BASE = '/api/v1';
 
 export interface RunnerStatus {
+	id: number;
 	name: string;
 	mode: string;
-	status: string;
 	url: string;
+	token?: string;
+	dir: string;
+	pat?: string;
+	scale_set_name: string;
+	max_runners: number;
+	labels: string;
+	runner_group: string;
 	jobs_completed: number;
+	created_at: string;
+	state: string;
 	active_workers: number;
-	group?: string;
+	error?: string;
 }
 
 export interface GlobalStatus {
-	total_runners: number;
-	active_workers: number;
-	warm_workers: number;
 	max_workers: number;
-	uptime: string;
+	warm_workers: number;
+	warm_pool_size: number;
+	active_workers: number;
+	booting_count: number;
+	is_paused: boolean;
+}
+
+export interface AddRunnerPayload {
+	name: string;
+	mode: string;
+	url: string;
+	token?: string;
+	pat?: string;
+	scale_set_name?: string;
+	max_runners?: number;
+	labels?: string[];
+	runner_group?: string;
+	dir?: string;
 }
 
 export interface Settings {
@@ -34,15 +57,15 @@ export const api = {
 		if (!res.ok) throw new Error('Failed to fetch runners');
 		return res.json();
 	},
-	async addRunner(data: any): Promise<void> {
+	async addRunner(data: AddRunnerPayload): Promise<void> {
 		const res = await fetch(`${API_BASE}/runners`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(data),
 		});
 		if (!res.ok) {
-			const text = await res.text();
-			throw new Error(text || 'Failed to add runner');
+			const body = await res.json().catch(() => ({}));
+			throw new Error(body.error || 'Failed to add runner');
 		}
 	},
 	async removeRunner(name: string, force: boolean = false): Promise<void> {
@@ -50,8 +73,8 @@ export const api = {
 			method: 'DELETE',
 		});
 		if (!res.ok) {
-			const text = await res.text();
-			throw new Error(text || 'Failed to remove runner');
+			const body = await res.json().catch(() => ({}));
+			throw new Error(body.error || 'Failed to remove runner');
 		}
 	},
 	async getStatus(): Promise<GlobalStatus> {
@@ -71,8 +94,8 @@ export const api = {
 			body: JSON.stringify(settings),
 		});
 		if (!res.ok) {
-			const text = await res.text();
-			throw new Error(text || 'Failed to update settings');
+			const body = await res.json().catch(() => ({}));
+			throw new Error(body.error || 'Failed to update settings');
 		}
 	},
 	async getDomains(): Promise<EnterpriseDomain[]> {
@@ -87,8 +110,8 @@ export const api = {
 			body: JSON.stringify({ domain }),
 		});
 		if (!res.ok) {
-			const text = await res.text();
-			throw new Error(text || 'Failed to add domain');
+			const body = await res.json().catch(() => ({}));
+			throw new Error(body.error || 'Failed to add domain');
 		}
 	},
 	async removeDomain(id: number): Promise<void> {
@@ -96,8 +119,8 @@ export const api = {
 			method: 'DELETE',
 		});
 		if (!res.ok) {
-			const text = await res.text();
-			throw new Error(text || 'Failed to remove domain');
+			const body = await res.json().catch(() => ({}));
+			throw new Error(body.error || 'Failed to remove domain');
 		}
 	}
 };

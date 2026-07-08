@@ -56,6 +56,7 @@ type Orchestrator struct {
 	warmWorkersConfig int
 	bootingCount      int
 	isPaused          bool
+	reporterMu        sync.RWMutex
 	reporter          StatusReporter
 }
 
@@ -92,6 +93,8 @@ func NewOrchestrator(pauser GlobalPauser, maxWorkers int, warmWorkers int, db *s
 }
 
 func (o *Orchestrator) SetStatusReporter(reporter StatusReporter) {
+	o.reporterMu.Lock()
+	defer o.reporterMu.Unlock()
 	o.reporter = reporter
 }
 

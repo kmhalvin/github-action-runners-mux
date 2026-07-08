@@ -12,11 +12,6 @@ import (
 	"github.com/kmhalvin/github-action-runners-mux/config"
 )
 
-type MuxMeta struct {
-	RunnerName string `json:"runner_name,omitempty"`
-	Token      string `json:"token"`
-	URL        string `json:"url"`
-}
 
 // InitializeEnvironment checks if the runner is registered and runs config.sh if needed.
 // On every startup it re-injects the worker-shim so that the shim binary always
@@ -29,7 +24,7 @@ func InitializeEnvironment(cfg *config.RunnerConfig) error {
 	}
 
 	// Always save/update the meta file (especially important for upgrading older registered runners)
-	meta := MuxMeta{
+	meta := config.MuxMeta{
 		RunnerName: cfg.Name,
 		Token:      cfg.Token,
 		URL:        cfg.URL,

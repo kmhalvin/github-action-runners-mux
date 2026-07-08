@@ -1,0 +1,10 @@
+.git
+.agents
+node_modules
+*.db
+config.yaml
+.env
+.env.*
+web/dist
+LICENSE
+README.md

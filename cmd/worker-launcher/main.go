@@ -40,25 +40,29 @@ func main() {
 	wl := NewWorkerLauncher()
 
 	// HTTP Server
+	httpListener, err := net.Listen("tcp", ":9001")
+	if err != nil {
+		log.Fatalf("HTTP server listen failed: %v", err)
+	}
 	go func() {
 		http.HandleFunc("/wait", wl.handleWait)
 		http.HandleFunc("/start", wl.handleStart)
 		log.Println("Worker Launcher HTTP server listening on :9001")
-		if err := http.ListenAndServe(":9001", nil); err != nil {
-			log.Fatalf("HTTP server failed: %v", err)
+		if err := http.Serve(httpListener, nil); err != nil {
+			log.Printf("HTTP server failed: %v", err)
 		}
 	}()
 
 	// TCP Server
+	tcpListener, err := net.Listen("tcp", "0.0.0.0:9000")
+	if err != nil {
+		log.Fatalf("TCP listen failed: %v", err)
+	}
 	go func() {
-		listener, err := net.Listen("tcp", "0.0.0.0:9000")
-		if err != nil {
-			log.Fatalf("TCP listen failed: %v", err)
-		}
 		log.Println("Worker Launcher TCP server listening on :9000")
 
 		for {
-			conn, err := listener.Accept()
+			conn, err := tcpListener.Accept()
 			if err != nil {
 				log.Printf("TCP accept failed: %v", err)
 				continue

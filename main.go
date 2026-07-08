@@ -29,6 +29,7 @@ import (
 
 const DrainTimeout = 30 * time.Minute
 const LegacyYAMLPath = "config.yaml"
+const DefaultMaxWorkers = 5
 
 func getDBPath() string {
 	if path := os.Getenv("DB_PATH"); path != "" {
@@ -71,7 +72,7 @@ func main() {
 	maxWorkersStr, _ := queries.GetSetting(context.Background(), "max_workers")
 	warmWorkersStr, _ := queries.GetSetting(context.Background(), "warm_workers")
 
-	maxWorkers := 5 // Default
+	maxWorkers := DefaultMaxWorkers
 	if mw, err := strconv.Atoi(maxWorkersStr); err == nil && mw > 0 {
 		maxWorkers = mw
 	}
@@ -101,20 +102,20 @@ func main() {
 	orch.SetStatusReporter(multiplexer)
 
 	// 8. Start Unix socket server for Standalone shim allocations
-	go func() {
-		os.Remove(api.SockPath)
-		listener, err := net.Listen("unix", api.SockPath)
-		if err != nil {
-			log.Fatalf("Fatal: failed to listen on unix socket: %v", err)
-		}
-		os.Chmod(api.SockPath, 0777)
+	os.Remove(api.SockPath)
+	listener, err := net.Listen("unix", api.SockPath)
+	if err != nil {
+		log.Fatalf("Fatal: failed to listen on unix socket: %v", err)
+	}
+	os.Chmod(api.SockPath, 0660)
 
+	go func() {
 		muxServer := http.NewServeMux()
 		muxServer.HandleFunc("/api/v1/worker/allocate", orch.HandleAllocate)
 
 		log.Printf("[Orchestrator] Listening on unix socket %s for Standalone Shim allocations...", api.SockPath)
 		if err := http.Serve(listener, muxServer); err != nil {
-			log.Fatalf("Fatal: orchestrator server failed: %v", err)
+			log.Printf("Fatal: orchestrator server failed: %v", err)
 		}
 	}()
 

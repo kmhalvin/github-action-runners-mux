@@ -36,8 +36,8 @@ export default function SettingsPage() {
 			});
 			toast.success("Settings saved successfully");
 			mutateSettings();
-		} catch (err: any) {
-			toast.error(err.message);
+		} catch (err: unknown) {
+			toast.error(err instanceof Error ? err.message : 'Unknown error');
 		} finally {
 			setSaving(false);
 		}
@@ -52,8 +52,8 @@ export default function SettingsPage() {
 			setNewDomain("");
 			mutateDomains();
 			toast.success("Domain added");
-		} catch (err: any) {
-			toast.error(err.message);
+		} catch (err: unknown) {
+			toast.error(err instanceof Error ? err.message : 'Unknown error');
 		}
 	};
 
@@ -62,8 +62,8 @@ export default function SettingsPage() {
 			await api.removeDomain(id);
 			mutateDomains();
 			toast.success("Domain removed");
-		} catch (err: any) {
-			toast.error(err.message);
+		} catch (err: unknown) {
+			toast.error(err instanceof Error ? err.message : 'Unknown error');
 		}
 	};
 
@@ -176,6 +176,7 @@ export default function SettingsPage() {
 													onClick={() => removeDomain(domain.id)}
 													disabled={domain.domain === 'github.com'}
 													className="text-destructive hover:bg-destructive/10"
+													aria-label="Remove domain"
 												>
 													<Trash2 className="size-4" />
 												</Button>

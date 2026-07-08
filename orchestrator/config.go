@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // runnerConfigFileNames are the config files Runner.Worker needs.
@@ -31,6 +32,16 @@ var runnerConfigFileNames = []string{
 // name in the config.
 func (o *Orchestrator) readRunnerConfigFiles(name string, dir string) map[string]string {
 	// Prefer the directory from the shim (authoritative — it's where the shim lives)
+	if dir != "" {
+		cleanDir := filepath.Clean(dir)
+		if !strings.HasPrefix(cleanDir, "/opt/runners/") {
+			log.Printf("[Orchestrator] Warning: runner %s dir is not under /opt/runners/: %s", name, cleanDir)
+			dir = "" // fallback to DB lookup
+		} else {
+			dir = cleanDir
+		}
+	}
+
 	if dir == "" {
 		// Fallback: look up by name in DB
 		if o.queries == nil {

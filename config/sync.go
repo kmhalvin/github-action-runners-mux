@@ -10,11 +10,6 @@ import (
 	"github.com/kmhalvin/github-action-runners-mux/db/sqlc"
 )
 
-// MuxMeta holds the credentials required to deregister a runner from GitHub.
-type MuxMeta struct {
-	Token string `json:"token"`
-	URL   string `json:"url"`
-}
 
 // SyncRunners reconciles the currently configured runners against the
 // previously registered runners in /opt/runners. Any runner directory

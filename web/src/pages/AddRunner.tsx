@@ -68,13 +68,13 @@ export default function AddRunner() {
 				scale_set_name: mode === "scaleset" ? scaleSetName : undefined,
 				max_runners: maxRunners > 0 ? maxRunners : undefined,
 				labels: labels ? labels.split(",").map(l => l.trim()) : undefined,
-				group: group || undefined,
+				runner_group: group || undefined,
 				dir: mode === "standalone" ? `/opt/runners/${name || 'temp'}` : undefined,
 			});
 			toast.success("Runner added successfully");
 			navigate("/");
-		} catch (err: any) {
-			toast.error(err.message);
+		} catch (err: unknown) {
+			toast.error(err instanceof Error ? err.message : 'Unknown error');
 		} finally {
 			setLoading(false);
 		}
@@ -102,6 +102,7 @@ export default function AddRunner() {
 								value={[mode]} 
 								onValueChange={(val: string[]) => val.length > 0 && setMode(val[0])}
 								className="justify-start"
+								aria-label="Architecture Mode"
 							>
 								<ToggleGroupItem value="standalone" className="w-32">Standalone</ToggleGroupItem>
 								<ToggleGroupItem value="scaleset" className="w-32">Scale Set</ToggleGroupItem>

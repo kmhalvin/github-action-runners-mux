@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -38,6 +39,8 @@ func (api *API) listRunners(w http.ResponseWriter, r *http.Request) {
 
 	var results []Combined
 	for _, dbR := range runners {
+		dbR.Token = ""
+		dbR.Pat = ""
 		c := Combined{Runner: dbR, State: mux.StateOffline}
 		if s, ok := statusMap[dbR.Name]; ok {
 			c.State = s.State
@@ -66,6 +69,11 @@ func (api *API) createRunner(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		WriteError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+
+	if strings.TrimSpace(payload.Name) == "" || strings.TrimSpace(payload.Mode) == "" || strings.TrimSpace(payload.URL) == "" {
+		WriteError(w, http.StatusBadRequest, "name, mode, and url are required")
 		return
 	}
 
@@ -151,7 +159,10 @@ func (api *API) deleteRunner(w http.ResponseWriter, r *http.Request) {
 			// For cleanup, we can just remove the directory, GitHub will eventually timeout the session
 			// or we can run config.sh remove if token is still valid.
 			// Let's rely on the simple directory removal for now since token is in DB.
-			os.RemoveAll(rDir)
+			cleanDir := filepath.Clean(rDir)
+			if strings.HasPrefix(cleanDir, "/opt/runners/") {
+				os.RemoveAll(cleanDir)
+			}
 		}(name, dbRunner.Dir)
 	}
 

@@ -20,6 +20,13 @@ type RunnerConfig struct {
 	Group        string   `yaml:"group,omitempty"`
 }
 
+// MuxMeta holds the credentials required to deregister a runner from GitHub.
+type MuxMeta struct {
+	RunnerName string `json:"runner_name,omitempty"`
+	Token      string `json:"token"`
+	URL        string `json:"url"`
+}
+
 type Config struct {
 	MaxWorkers  int            `yaml:"max_workers,omitempty"`
 	WarmWorkers int            `yaml:"warm_workers,omitempty"`

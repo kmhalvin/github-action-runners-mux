@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { PlusIcon, Server, Play, Trash2, Cpu, Activity, Clock } from "lucide-react";
 import { api, API_BASE } from "@/lib/api";
 import type { RunnerStatus, GlobalStatus } from "@/lib/api";
-import { useEffect } from "react";
+import { useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,15 +25,15 @@ export default function Overview() {
 		return () => sse.close();
 	}, [mutateStatus, mutateRunners]);
 
-	const removeRunner = async (name: string, force: boolean) => {
+	const removeRunner = useCallback(async (name: string, force: boolean) => {
 		try {
 			await api.removeRunner(name, force);
 			toast.success(`Runner ${name} removal requested`);
 			mutateRunners();
-		} catch (err: any) {
-			toast.error(err.message);
+		} catch (err: unknown) {
+			toast.error(err instanceof Error ? err.message : 'Unknown error');
 		}
-	};
+	}, [mutateRunners]);
 
 	return (
 		<div className="flex flex-col gap-8 max-w-6xl mx-auto">
@@ -58,7 +58,7 @@ export default function Overview() {
 						<Server className="size-4 text-muted-foreground" />
 					</CardHeader>
 					<CardContent>
-						<div className="text-2xl font-bold">{status ? status.total_runners : <Skeleton className="h-8 w-16" />}</div>
+						<div className="text-2xl font-bold">{runners ? runners.length : <Skeleton className="h-8 w-16" />}</div>
 					</CardContent>
 				</Card>
 				<Card>
@@ -76,7 +76,7 @@ export default function Overview() {
 						<Play className="size-4 text-muted-foreground" />
 					</CardHeader>
 					<CardContent>
-						<div className="text-2xl font-bold">{status ? status.warm_workers : <Skeleton className="h-8 w-16" />}</div>
+						<div className="text-2xl font-bold">{status ? status.warm_pool_size : <Skeleton className="h-8 w-16" />}</div>
 					</CardContent>
 				</Card>
 				<Card>
@@ -129,13 +129,13 @@ export default function Overview() {
 											{runner.name}
 										</CardTitle>
 										<Badge variant={
-											runner.status === 'online' ? 'default' : 
-											runner.status === 'busy' || runner.status === 'Busy' ? 'secondary' : 
-											runner.status === 'offline' ? 'destructive' : 'outline'
+											runner.state === 'Online' ? 'default' : 
+											runner.state === 'Busy' ? 'secondary' : 
+											runner.state === 'Offline' ? 'destructive' : 'outline'
 										}>
-											{runner.status === 'Busy' && runner.mode === 'scaleset' 
+											{runner.state === 'Busy' && runner.mode === 'scaleset' 
 												? `Busy (${runner.active_workers})`
-												: runner.status}
+												: runner.state}
 										</Badge>
 									</div>
 									<CardDescription className="truncate" title={runner.url}>
@@ -145,7 +145,7 @@ export default function Overview() {
 								<CardContent className="flex-1 pb-2">
 									<div className="flex flex-wrap gap-2 mb-4">
 										<Badge variant="outline">{runner.mode === 'standalone' ? 'Standalone' : 'Scale Set'}</Badge>
-										{runner.group && <Badge variant="outline">Group: {runner.group}</Badge>}
+										{runner.runner_group && <Badge variant="outline">Group: {runner.runner_group}</Badge>}
 									</div>
 									<div className="flex items-center gap-2 text-sm text-muted-foreground">
 										<Clock className="size-4" />
@@ -156,7 +156,7 @@ export default function Overview() {
 									<AlertDialog>
 										<AlertDialogTrigger
 											render={
-												<Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10">
+												<Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" aria-label="Remove runner">
 													<Trash2 className="size-4" />
 												</Button>
 											}

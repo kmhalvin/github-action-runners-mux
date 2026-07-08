@@ -39,9 +39,11 @@ func (o *Orchestrator) AllocateWorker(ctx context.Context, runnerName string) (*
 			o.cond.Broadcast()
 
 			o.mutex.Unlock()
+			o.reporterMu.RLock()
 			if o.reporter != nil {
 				o.reporter.MarkBusy(runnerName)
 			}
+			o.reporterMu.RUnlock()
 			return ww, nil
 		}
 
@@ -85,9 +87,11 @@ func (o *Orchestrator) AllocateWorker(ctx context.Context, runnerName string) (*
 				return nil, fmt.Errorf("container died immediately after allocation")
 			}
 
+			o.reporterMu.RLock()
 			if o.reporter != nil {
 				o.reporter.MarkBusy(runnerName)
 			}
+			o.reporterMu.RUnlock()
 
 			return ww, nil
 		}

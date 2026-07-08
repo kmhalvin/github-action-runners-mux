@@ -18,7 +18,8 @@ func ServeDashboard(api *API, port string) {
 	// Setup embedded filesystem
 	subFS, err := fs.Sub(web.Assets, "dist")
 	if err != nil {
-		log.Fatalf("[Dashboard] Failed to load embedded assets: %v", err)
+		log.Printf("[Dashboard] Failed to load embedded assets: %v", err)
+		return
 	}
 	fileServer := http.FileServer(http.FS(subFS))
 
@@ -57,6 +58,6 @@ func ServeDashboard(api *API, port string) {
 
 	log.Printf("[Dashboard] Server starting on %s", port)
 	if err := http.ListenAndServe(port, corsRouter(router)); err != nil {
-		log.Fatalf("[Dashboard] Server failed: %v", err)
+		log.Printf("[Dashboard] Server failed: %v", err)
 	}
 }

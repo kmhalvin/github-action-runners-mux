@@ -15,6 +15,7 @@ import (
 	"strconv"
 
 	"github.com/kmhalvin/github-action-runners-mux/api"
+	"github.com/kmhalvin/github-action-runners-mux/config"
 )
 
 // workerHeader is the framed preamble sent over the TCP connection before the
@@ -51,9 +52,7 @@ func main() {
 	execPath, _ := os.Executable()
 	runnerDir := filepath.Dir(filepath.Dir(execPath))
 	runnerName := filepath.Base(runnerDir)
-	var meta struct {
-		RunnerName string `json:"runner_name"`
-	}
+	var meta config.MuxMeta
 	if nameBytes, err := os.ReadFile(filepath.Join(runnerDir, ".mux-meta.json")); err == nil {
 		if err := json.Unmarshal(nameBytes, &meta); err == nil && meta.RunnerName != "" {
 			runnerName = meta.RunnerName

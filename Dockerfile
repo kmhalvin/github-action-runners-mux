@@ -8,7 +8,7 @@ COPY web/ .
 RUN npm run build
 
 # ── Go Build ──────────────────────────────────────────────────────────────────
-FROM golang:latest AS builder
+FROM golang:1.26 AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./

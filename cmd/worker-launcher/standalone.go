@@ -56,7 +56,7 @@ func writeConfigFiles(configFiles map[string]string) error {
 		if err != nil {
 			return fmt.Errorf("decode %s: %w", fname, err)
 		}
-		dest := filepath.Join(runnerDir, fname)
+		dest := filepath.Join(runnerDir, filepath.Base(fname))
 		if err := os.WriteFile(dest, data, 0600); err != nil {
 			return fmt.Errorf("write %s: %w", dest, err)
 		}
@@ -70,14 +70,18 @@ func (wl *WorkerLauncher) runStandaloneWorker(conn net.Conn) {
 	// The shim sends this as the first bytes on the TCP connection.
 	header, err := readFramedHeader(conn)
 	if err != nil {
-		log.Fatalf("Failed to read config files header: %v", err)
+		log.Printf("Failed to read config files header: %v", err)
+		wl.finish(1)
+		return
 	}
 
 	// 2. Write the config files to /actions-runner/ so Runner.Worker can find
 	// .runner / .credentials when it calls ConfigurationStore.GetSettings().
 	if len(header.ConfigFiles) > 0 {
 		if err := writeConfigFiles(header.ConfigFiles); err != nil {
-			log.Fatalf("Failed to write config files: %v", err)
+			log.Printf("Failed to write config files: %v", err)
+			wl.finish(1)
+			return
 		}
 	} else {
 		log.Printf("[Standalone Mode] Warning: no config files received in header")
@@ -86,11 +90,15 @@ func (wl *WorkerLauncher) runStandaloneWorker(conn net.Conn) {
 	// 3. Create local pipes
 	workerRead, shimWrite, err := os.Pipe()
 	if err != nil {
-		log.Fatalf("Pipe creation failed: %v", err)
+		log.Printf("Pipe creation failed: %v", err)
+		wl.finish(1)
+		return
 	}
 	shimRead, workerWrite, err := os.Pipe()
 	if err != nil {
-		log.Fatalf("Pipe creation failed: %v", err)
+		log.Printf("Pipe creation failed: %v", err)
+		wl.finish(1)
+		return
 	}
 
 	// 4. Stream TCP bidirectionally to/from local pipes.
@@ -118,7 +126,9 @@ func (wl *WorkerLauncher) runStandaloneWorker(conn net.Conn) {
 
 	log.Printf("[Standalone Mode] Spawning %s (cwd: %s)...", realWorkerPath, cmd.Dir)
 	if err := cmd.Start(); err != nil {
-		log.Fatalf("Failed to start worker: %v", err)
+		log.Printf("Failed to start worker: %v", err)
+		wl.finish(1)
+		return
 	}
 
 	err = cmd.Wait()

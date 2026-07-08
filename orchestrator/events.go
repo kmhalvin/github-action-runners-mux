@@ -109,9 +109,11 @@ func (o *Orchestrator) handleContainerDeath(containerID string) {
 
 		delete(o.activeWorkers, containerID)
 		o.activeListeners[aw.RunnerName]--
+		o.reporterMu.RLock()
 		if o.reporter != nil {
 			o.reporter.MarkIdle(aw.RunnerName)
 		}
+		o.reporterMu.RUnlock()
 		log.Printf("[Orchestrator] Active worker for [%s] died (%s)", aw.RunnerName, containerID[:12])
 		changed = true
 	} else if ww, ok := o.warmPool[containerID]; ok {

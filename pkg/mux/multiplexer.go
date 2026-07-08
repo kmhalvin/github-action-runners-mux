@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"sync"
 
 	"github.com/kmhalvin/github-action-runners-mux/config"
 	"github.com/kmhalvin/github-action-runners-mux/db/sqlc"
@@ -48,7 +47,6 @@ type Multiplexer struct {
 	standalone Runner
 	scaleset   Runner
 
-	mu sync.RWMutex
 }
 
 func NewMultiplexer(db *sql.DB, queries *sqlc.Queries, standalone Runner, scaleset Runner) *Multiplexer {

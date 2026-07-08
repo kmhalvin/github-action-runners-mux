@@ -4,6 +4,45 @@ import Overview from "./pages/Overview";
 import AddRunner from "./pages/AddRunner";
 import SettingsPage from "./pages/Settings";
 import { Toaster } from "@/components/ui/sonner";
+import React from "react";
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
+	constructor(props: { children: React.ReactNode }) {
+		super(props);
+		this.state = { hasError: false, error: null };
+	}
+
+	static getDerivedStateFromError(error: Error) {
+		return { hasError: true, error };
+	}
+
+	render() {
+		if (this.state.hasError) {
+			return (
+				<div className="flex flex-col items-center justify-center min-h-screen p-4">
+					<h2 className="text-2xl font-bold mb-4">Something went wrong</h2>
+					<p className="text-muted-foreground mb-4">{this.state.error?.message}</p>
+					<button 
+						className="px-4 py-2 bg-primary text-primary-foreground rounded-md"
+						onClick={() => window.location.reload()}
+					>
+						Reload page
+					</button>
+				</div>
+			);
+		}
+		return this.props.children;
+	}
+}
+
+function NotFound() {
+	return (
+		<div className="flex flex-col items-center justify-center min-h-[50vh]">
+			<h2 className="text-3xl font-bold mb-4">404 - Not Found</h2>
+			<p className="text-muted-foreground">The page you're looking for doesn't exist.</p>
+		</div>
+	);
+}
 
 function Layout({ children }: { children: React.ReactNode }) {
 	return (
@@ -46,15 +85,18 @@ function Layout({ children }: { children: React.ReactNode }) {
 
 function App() {
 	return (
-		<BrowserRouter>
-			<Layout>
-				<Routes>
-					<Route path="/" element={<Overview />} />
-					<Route path="/add" element={<AddRunner />} />
-					<Route path="/settings" element={<SettingsPage />} />
-				</Routes>
-			</Layout>
-		</BrowserRouter>
+		<ErrorBoundary>
+			<BrowserRouter>
+				<Layout>
+					<Routes>
+						<Route path="/" element={<Overview />} />
+						<Route path="/add" element={<AddRunner />} />
+						<Route path="/settings" element={<SettingsPage />} />
+						<Route path="*" element={<NotFound />} />
+					</Routes>
+				</Layout>
+			</BrowserRouter>
+		</ErrorBoundary>
 	);
 }
 

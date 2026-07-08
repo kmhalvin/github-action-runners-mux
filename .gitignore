@@ -3,3 +3,9 @@
 /proxy
 /worker-shim
 /worker-launcher
+config.yaml
+.env
+.env.*
+*.db
+/web/dist/
+/github-action-runners-mux
