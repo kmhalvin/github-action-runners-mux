@@ -1,13 +1,18 @@
 package scaleset
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
+	"time"
 
 	"github.com/actions/scaleset"
 	"github.com/google/uuid"
+	"github.com/kmhalvin/github-action-runners-mux/api"
 	"github.com/kmhalvin/github-action-runners-mux/orchestrator"
 )
 
@@ -60,12 +65,29 @@ func (s *Scaler) startWorker(ctx context.Context) {
 		return
 	}
 
-	// Uses AllocateJIT directly on orchestrator
-	err = s.orch.AllocateJIT(ctx, s.runnerName, jit.EncodedJITConfig)
+	ww, err := s.orch.AllocateWorker(ctx, s.runnerName)
 	if err != nil {
 		log.Printf("[%s] Failed to allocate JIT worker: %v", s.runnerName, err)
 		return
 	}
+
+	reqPayload, _ := json.Marshal(api.StartRequest{JITConfig: jit.EncodedJITConfig})
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Post(fmt.Sprintf("http://%s:9001/start", ww.IPAddress), "application/json", bytes.NewBuffer(reqPayload))
+	if err != nil {
+		log.Printf("[%s] Failed to send JIT config to container %s: %v", s.runnerName, ww.ContainerID[:12], err)
+		// We'd ideally want to handle container death, but Orch will eventually reap it if it fails to start properly.
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[%s] Container %s rejected JIT config (status %d)", s.runnerName, ww.ContainerID[:12], resp.StatusCode)
+		return
+	}
+
+	log.Printf("[%s] Successfully pushed JIT payload to %s", s.runnerName, ww.ContainerID[:12])
 }
 
 func (s *Scaler) HandleJobStarted(ctx context.Context, jobInfo *scaleset.JobStarted) error {

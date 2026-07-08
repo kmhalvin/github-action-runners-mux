@@ -85,10 +85,11 @@ func ImportFromYAML(ctx context.Context, db *sql.DB, queries *sqlc.Queries, yaml
 
 		var token, dir, pat, ssName string
 
-		if mode == "standalone" {
+		switch mode {
+		case "standalone":
 			token = r.Token
 			dir = r.Dir
-		} else if mode == "scaleset" {
+		case "scaleset":
 			pat = r.PAT
 			ssName = r.ScaleSetName
 		}
