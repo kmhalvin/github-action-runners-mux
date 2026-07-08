@@ -1,3 +1,13 @@
+# ── Frontend Build ────────────────────────────────────────────────────────────
+FROM node:22-alpine AS frontend
+
+WORKDIR /app/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ .
+RUN npm run build
+
+# ── Go Build ──────────────────────────────────────────────────────────────────
 FROM golang:latest AS builder
 
 WORKDIR /app
@@ -5,6 +15,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+# Copy pre-built frontend assets for go:embed
+COPY --from=frontend /app/web/dist ./web/dist
+
 # Build proxy and worker-shim
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o proxy .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o worker-shim ./cmd/worker-shim
