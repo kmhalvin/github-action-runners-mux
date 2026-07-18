@@ -18,6 +18,14 @@ func (wl *WorkerLauncher) handleWait(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(api.WaitResponse{ExitCode: exitCode})
 
+	// Flush the response to the TCP socket before signaling.
+	// Without this, os.Exit() in main() can kill the process before
+	// the HTTP server finishes flushing the response body to TCP,
+	// causing the worker-shim to receive EOF instead of the exit code.
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
 	// Signal that the host has fetched the response
 	select {
 	case wl.waitFetched <- struct{}{}:

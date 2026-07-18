@@ -14,13 +14,16 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
+# Install SQLite development libraries for CGO
+RUN apt-get update && apt-get install -y gcc libc6-dev libsqlite3-dev
+
 COPY . .
 # Copy pre-built frontend assets for go:embed
 COPY --from=frontend /app/web/dist ./web/dist
 
-# Build proxy and worker-shim
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o proxy .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o worker-shim ./cmd/worker-shim
+# Build proxy and worker-shim with CGO enabled for sqlite3 support
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o proxy .
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o worker-shim ./cmd/worker-shim
 
 # ── GitHub Actions Runner ────────────────────────────────────────────────────
 ARG GH_RUNNER_VERSION="2.335.1"
@@ -52,6 +55,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # ── Truly Minimal packages ────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
     dumb-init \
     && rm -rf /var/lib/apt/lists/*
 
@@ -65,4 +69,4 @@ COPY --from=builder /app/proxy /usr/local/bin/proxy
 COPY --from=builder /app/worker-shim /usr/local/bin/worker-shim
 
 WORKDIR /opt/runners
-ENTRYPOINT ["/usr/bin/dumb-init", "--", "/usr/local/bin/proxy", "/etc/github-mux/config.yaml"]
+ENTRYPOINT ["/usr/bin/dumb-init", "--", "/usr/local/bin/proxy"]

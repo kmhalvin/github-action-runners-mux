@@ -19,6 +19,7 @@ const (
 	StatePaused      RunnerState = "Paused"
 	StateDraining    RunnerState = "Draining"
 	StateOffline     RunnerState = "Offline"
+	StateFailed      RunnerState = "Failed"
 )
 
 type RunnerStatus struct {
@@ -34,6 +35,7 @@ type RunnerStatus struct {
 type Runner interface {
 	Start(ctx context.Context, cfg config.RunnerConfig) error
 	Stop(name string, force bool) error
+	Deregister(cfg config.RunnerConfig) error
 	GetStatus(name string) (RunnerStatus, error)
 	ListRunners() []RunnerStatus
 	MarkBusy(name string)
@@ -87,6 +89,18 @@ func (m *Multiplexer) RemoveRunner(ctx context.Context, name string, force bool,
 		return m.scaleset.Stop(name, force)
 	}
 	return fmt.Errorf("unknown runner mode: %s", mode)
+}
+
+// Deregister removes the runner from GitHub (config.sh remove for standalone,
+// DeleteRunnerScaleSet for scaleset) without stopping the local process.
+func (m *Multiplexer) Deregister(cfg config.RunnerConfig) error {
+	switch cfg.Mode {
+	case "standalone", "":
+		return m.standalone.Deregister(cfg)
+	case "scaleset":
+		return m.scaleset.Deregister(cfg)
+	}
+	return fmt.Errorf("unknown runner mode: %s", cfg.Mode)
 }
 
 // GetRunnerStatuses returns the combined status of all runners

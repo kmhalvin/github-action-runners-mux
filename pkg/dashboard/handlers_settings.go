@@ -52,48 +52,6 @@ func (api *API) updateSettings(w http.ResponseWriter, r *http.Request) {
 
 	// Update orchestrator instantly
 	api.orch.UpdateSettings(maxWorkers, warmWorkers)
-	api.sse.Broadcast("capacity:changed", map[string]int{"max_workers": maxWorkers, "warm_workers": warmWorkers})
 
 	WriteJSON(w, http.StatusOK, map[string]string{"status": "updated"})
-}
-
-func (api *API) listDomains(w http.ResponseWriter, r *http.Request) {
-	domains, err := api.queries.ListEnterpriseDomains(r.Context())
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	WriteJSON(w, http.StatusOK, domains)
-}
-
-func (api *API) addDomain(w http.ResponseWriter, r *http.Request) {
-	var payload struct {
-		Domain string `json:"domain"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.Domain == "" {
-		WriteError(w, http.StatusBadRequest, "invalid payload")
-		return
-	}
-
-	d, err := api.queries.AddEnterpriseDomain(r.Context(), payload.Domain)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	WriteJSON(w, http.StatusCreated, d)
-}
-
-func (api *API) deleteDomain(w http.ResponseWriter, r *http.Request) {
-	idStr := r.PathValue("id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-
-	if err := api.queries.RemoveEnterpriseDomain(r.Context(), id); err != nil {
-		WriteError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

@@ -10,12 +10,11 @@ import (
 )
 
 func ServeDashboard(api *API, port string) {
-	router := http.NewServeMux()
+	// API router — auth is applied per-route inside MountRoutes
+	apiRouter := http.NewServeMux()
+	api.MountRoutes(apiRouter)
 
-	// Mount API Routes
-	api.MountRoutes(router)
-
-	// Setup embedded filesystem
+	// Static file server — no auth (SPA must load before login)
 	subFS, err := fs.Sub(web.Assets, "dist")
 	if err != nil {
 		log.Printf("[Dashboard] Failed to load embedded assets: %v", err)
@@ -23,12 +22,14 @@ func ServeDashboard(api *API, port string) {
 	}
 	fileServer := http.FileServer(http.FS(subFS))
 
-	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			http.NotFound(w, r)
-			return
-		}
+	// Read index.html once
+	indexHTML, err := fs.ReadFile(subFS, "index.html")
+	if err != nil {
+		log.Printf("[Dashboard] Failed to read index.html: %v", err)
+		return
+	}
 
+	staticHandler := func(w http.ResponseWriter, r *http.Request) {
 		// Try to serve the exact file
 		f, err := subFS.Open(strings.TrimPrefix(r.URL.Path, "/"))
 		if err == nil {
@@ -38,16 +39,22 @@ func ServeDashboard(api *API, port string) {
 		}
 
 		// Fallback to index.html for SPA routing
-		r.URL.Path = "/"
-		fileServer.ServeHTTP(w, r)
-	})
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(indexHTML)
+	}
 
-	// Add basic CORS middleware for dev
+	// Top-level router: /api/ goes to authed API, everything else to static
+	router := http.NewServeMux()
+	router.Handle("/api/", apiRouter)
+	router.HandleFunc("/", staticHandler)
+
+	// CORS middleware
 	corsRouter := func(next http.Handler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			if r.Method == "OPTIONS" {
 				w.WriteHeader(http.StatusOK)
 				return

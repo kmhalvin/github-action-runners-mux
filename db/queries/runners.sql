@@ -7,23 +7,24 @@ SELECT * FROM runners WHERE id = ? LIMIT 1;
 -- name: GetRunnerByName :one
 SELECT * FROM runners WHERE name = ? LIMIT 1;
 
+-- name: GetRunnerByURLMode :one
+SELECT * FROM runners WHERE url = ? AND mode = ? LIMIT 1;
+
 -- name: CreateRunner :one
 INSERT INTO runners (
-    name, mode, url, token, dir, pat, scale_set_name, max_runners, labels, runner_group
+    name, mode, url, dir, pat, scale_set_name, max_runners, labels, runner_group
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?
 ) RETURNING *;
 
 -- name: UpdateRunner :one
 UPDATE runners
 SET 
-    url = COALESCE(sqlc.narg('url'), url),
-    token = COALESCE(sqlc.narg('token'), token),
     pat = COALESCE(sqlc.narg('pat'), pat),
     max_runners = COALESCE(sqlc.narg('max_runners'), max_runners),
     labels = COALESCE(sqlc.narg('labels'), labels),
     runner_group = COALESCE(sqlc.narg('runner_group'), runner_group)
-WHERE id = ?
+WHERE id = sqlc.arg('id')
 RETURNING *;
 
 -- name: DeleteRunner :exec

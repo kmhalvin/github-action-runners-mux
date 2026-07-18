@@ -8,17 +8,11 @@ import (
 	"time"
 )
 
-type EnterpriseDomain struct {
-	ID     int64  `json:"id"`
-	Domain string `json:"domain"`
-}
-
 type Runner struct {
 	ID            int64     `json:"id"`
 	Name          string    `json:"name"`
 	Mode          string    `json:"mode"`
 	Url           string    `json:"url"`
-	Token         string    `json:"token"`
 	Dir           string    `json:"dir"`
 	Pat           string    `json:"pat"`
 	ScaleSetName  string    `json:"scale_set_name"`

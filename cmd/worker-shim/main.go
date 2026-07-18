@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/kmhalvin/github-action-runners-mux/api"
 	"github.com/kmhalvin/github-action-runners-mux/config"
@@ -138,16 +139,38 @@ func main() {
 	<-errChan
 
 	// 4. Get Exit Code from Worker HTTP
+	// Retry with backoff: the worker-launcher may be in a brief race between
+	// flushing the HTTP response and os.Exit(), or the 5s container exit
+	// timeout may fire before our first attempt lands. Retries handle both.
 	log.Printf("[Worker Shim] Streams closed. Fetching exit code from worker...")
-	exitResp, err := http.Get(fmt.Sprintf("http://%s:9001/wait", workerIP))
-	if err != nil {
-		log.Fatalf("[Worker Shim] Failed to get exit code: %v", err)
-	}
-	defer exitResp.Body.Close()
 
 	var exitData api.WaitResponse
-	if err := json.NewDecoder(exitResp.Body).Decode(&exitData); err != nil {
-		log.Fatalf("[Worker Shim] Failed to decode exit code: %v", err)
+	var lastErr error
+	waitClient := &http.Client{Timeout: 3 * time.Second}
+	waitURL := fmt.Sprintf("http://%s:9001/wait", workerIP)
+
+	for attempt := range 5 {
+		exitResp, err := waitClient.Get(waitURL)
+
+		if err != nil {
+			lastErr = err
+			log.Printf("[Worker Shim] /wait attempt %d failed: %v", attempt+1, err)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		if err := json.NewDecoder(exitResp.Body).Decode(&exitData); err != nil {
+			exitResp.Body.Close()
+			lastErr = err
+			log.Printf("[Worker Shim] /wait attempt %d decode failed: %v", attempt+1, err)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		exitResp.Body.Close()
+		lastErr = nil
+		break
+	}
+	if lastErr != nil {
+		log.Fatalf("[Worker Shim] Failed to get exit code after retries: %v", lastErr)
 	}
 
 	exitCode := exitData.ExitCode

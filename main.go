@@ -28,7 +28,6 @@ import (
 )
 
 const DrainTimeout = 30 * time.Minute
-const LegacyYAMLPath = "config.yaml"
 const DefaultMaxWorkers = 5
 
 func getDBPath() string {
@@ -56,19 +55,7 @@ func main() {
 
 	queries := sqlc.New(sqliteDB)
 
-	// 2. Import legacy config.yaml if present and DB is empty
-	if err := db.ImportFromYAML(context.Background(), sqliteDB, queries, LegacyYAMLPath); err != nil {
-		log.Printf("Warning: failed to import legacy YAML config: %v", err)
-	}
-
-	// Reconcile Configuration (Deregister stale standalone runners)
-	dbRunners, err := queries.ListRunners(context.Background())
-	if err != nil {
-		log.Fatalf("Fatal: failed to list runners from DB: %v", err)
-	}
-	config.SyncRunners(dbRunners)
-
-	// 3. Get Settings from DB
+	// 2. Get Settings from DB
 	maxWorkersStr, _ := queries.GetSetting(context.Background(), "max_workers")
 	warmWorkersStr, _ := queries.GetSetting(context.Background(), "warm_workers")
 
@@ -83,25 +70,32 @@ func main() {
 	}
 	warmWorkers = min(warmWorkers, maxWorkers)
 
-	// 4. Initialize Standalone Manager
+	// 3. Initialize Standalone Manager
 	stdManager := standalone.NewManager()
 
-	// 5. Initialize Orchestrator
+	// 3b. Reconcile Configuration (Deregister stale standalone runners)
+	dbRunners, err := queries.ListRunners(context.Background())
+	if err != nil {
+		log.Fatalf("Fatal: failed to list runners from DB: %v", err)
+	}
+	stdManager.SyncStaleRunners(dbRunners)
+
+	// 4. Initialize Orchestrator
 	orch, err := orchestrator.NewOrchestrator(stdManager, maxWorkers, warmWorkers, sqliteDB, queries)
 	if err != nil {
 		log.Fatalf("Fatal: failed to initialize Orchestrator: %v", err)
 	}
 
-	// 6. Initialize ScaleSet Manager
+	// 5. Initialize ScaleSet Manager
 	ssManager := scaleset.NewScaleSetManager(orch, sqliteDB, queries)
 
-	// 7. Initialize Multiplexer
+	// 6. Initialize Multiplexer
 	multiplexer := mux.NewMultiplexer(sqliteDB, queries, stdManager, ssManager)
 
 	// Link multiplexer as the status reporter for orchestrator events
 	orch.SetStatusReporter(multiplexer)
 
-	// 8. Start Unix socket server for Standalone shim allocations
+	// 7. Start Unix socket server for Standalone shim allocations
 	os.Remove(api.SockPath)
 	listener, err := net.Listen("unix", api.SockPath)
 	if err != nil {
@@ -119,18 +113,37 @@ func main() {
 		}
 	}()
 
+	// 8. Load auth config (for OAuth-based user authentication)
+	authCfg, err := config.LoadAuthConfig("/etc/github-mux/auth.yaml")
+	if err != nil {
+		log.Printf("Warning: failed to load auth config: %v", err)
+	}
+
 	// 9. Start Dashboard Server
-	sseHub := dashboard.NewSSEHub()
-	dashboardAPI := dashboard.NewAPI(sqliteDB, queries, multiplexer, orch, sseHub)
+	dashboardAPI := dashboard.NewAPI(sqliteDB, queries, multiplexer, orch, authCfg)
 	go dashboard.ServeDashboard(dashboardAPI, ":8080")
 
 	// 10. Start all runners from DB
+	// Stagger standalone runner startup to avoid hitting GitHub's Actions
+	// session-creation API simultaneously.
+	startupDelay := 5 * time.Second
+	if d := os.Getenv("RUNNER_STARTUP_DELAY"); d != "" {
+		if parsed, err := time.ParseDuration(d); err == nil {
+			startupDelay = parsed
+		}
+	}
+
+	standaloneStarted := 0
 	for _, r := range dbRunners {
+		if r.Mode == "standalone" && standaloneStarted > 0 {
+			log.Printf("Staggering standalone runner startup: waiting %v before starting %s...", startupDelay, r.Name)
+			time.Sleep(startupDelay)
+		}
+
 		cfg := config.RunnerConfig{
 			Name:         r.Name,
 			Mode:         r.Mode,
 			URL:          r.Url,
-			Token:        r.Token,
 			Dir:          r.Dir,
 			PAT:          r.Pat,
 			ScaleSetName: r.ScaleSetName,
@@ -146,6 +159,10 @@ func main() {
 
 		if err := multiplexer.AddRunner(context.Background(), cfg); err != nil {
 			log.Printf("Warning: failed to start runner %s: %v", r.Name, err)
+		}
+
+		if r.Mode == "standalone" {
+			standaloneStarted++
 		}
 	}
 

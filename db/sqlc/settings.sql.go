@@ -9,19 +9,6 @@ import (
 	"context"
 )
 
-const addEnterpriseDomain = `-- name: AddEnterpriseDomain :one
-INSERT INTO enterprise_domains (domain) VALUES (?)
-ON CONFLICT(domain) DO UPDATE SET domain = excluded.domain
-RETURNING id, domain
-`
-
-func (q *Queries) AddEnterpriseDomain(ctx context.Context, domain string) (EnterpriseDomain, error) {
-	row := q.db.QueryRowContext(ctx, addEnterpriseDomain, domain)
-	var i EnterpriseDomain
-	err := row.Scan(&i.ID, &i.Domain)
-	return i, err
-}
-
 const getSetting = `-- name: GetSetting :one
 SELECT value FROM settings WHERE key = ? LIMIT 1
 `
@@ -31,42 +18,6 @@ func (q *Queries) GetSetting(ctx context.Context, key string) (string, error) {
 	var value string
 	err := row.Scan(&value)
 	return value, err
-}
-
-const listEnterpriseDomains = `-- name: ListEnterpriseDomains :many
-SELECT id, domain FROM enterprise_domains ORDER BY domain ASC
-`
-
-func (q *Queries) ListEnterpriseDomains(ctx context.Context) ([]EnterpriseDomain, error) {
-	rows, err := q.db.QueryContext(ctx, listEnterpriseDomains)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []EnterpriseDomain
-	for rows.Next() {
-		var i EnterpriseDomain
-		if err := rows.Scan(&i.ID, &i.Domain); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const removeEnterpriseDomain = `-- name: RemoveEnterpriseDomain :exec
-DELETE FROM enterprise_domains WHERE id = ?
-`
-
-func (q *Queries) RemoveEnterpriseDomain(ctx context.Context, id int64) error {
-	_, err := q.db.ExecContext(ctx, removeEnterpriseDomain, id)
-	return err
 }
 
 const upsertSetting = `-- name: UpsertSetting :exec

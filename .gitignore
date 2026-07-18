@@ -9,3 +9,6 @@ config.yaml
 *.db
 /web/dist/
 /github-action-runners-mux
+mux-data/
+runner-data/
+P.patch

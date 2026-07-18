@@ -115,10 +115,10 @@ func (o *Orchestrator) UpdateSettings(maxWorkers, warmWorkers int) {
 }
 
 // GetStatus returns the current global capacity status
-func (o *Orchestrator) GetStatus() map[string]interface{} {
+func (o *Orchestrator) GetStatus() map[string]any {
 	o.mutex.Lock()
 	defer o.mutex.Unlock()
-	return map[string]interface{}{
+	return map[string]any{
 		"max_workers":    o.maxWorkers,
 		"warm_workers":   o.warmWorkersConfig,
 		"warm_pool_size": len(o.warmPool),

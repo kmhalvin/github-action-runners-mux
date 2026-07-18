@@ -26,7 +26,6 @@ func InitializeEnvironment(cfg *config.RunnerConfig) error {
 	// Always save/update the meta file (especially important for upgrading older registered runners)
 	meta := config.MuxMeta{
 		RunnerName: cfg.Name,
-		Token:      cfg.Token,
 		URL:        cfg.URL,
 	}
 	metaData, _ := json.Marshal(meta)

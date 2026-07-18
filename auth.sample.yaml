@@ -1,0 +1,23 @@
+# OAuth App configuration for user authentication.
+#
+# This file configures OAuth Apps for one or more GHES hosts. Users sign in
+# via the OAuth flow, and the resulting token (with repo scope) is used to:
+#   1. List repos and organizations the user has admin access to (repo picker)
+#   2. Generate registration tokens for standalone runners (auto, no paste)
+#
+# To set up:
+#   1. Create an OAuth App on each GHES host (Settings > Developer settings > OAuth Apps)
+#   2. Set the callback URL to: http://<your-mux-host>:8080/callback
+#      (If serving under a base path via BASE_PATH env var, use:
+#       http://<your-mux-host>/<base-path>/callback)
+#   3. Note the Client ID and Client Secret
+#   4. Copy this file to auth.yaml and fill in the values
+
+oauth_apps:
+  - host: github.enterprise.local
+    client_id: "Iv1..."
+    client_secret: "..."
+
+  - host: github.com
+    client_id: "Iv1..."
+    client_secret: "..."

@@ -12,17 +12,16 @@ import (
 
 const createRunner = `-- name: CreateRunner :one
 INSERT INTO runners (
-    name, mode, url, token, dir, pat, scale_set_name, max_runners, labels, runner_group
+    name, mode, url, dir, pat, scale_set_name, max_runners, labels, runner_group
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-) RETURNING id, name, mode, url, token, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at
+    ?, ?, ?, ?, ?, ?, ?, ?, ?
+) RETURNING id, name, mode, url, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at
 `
 
 type CreateRunnerParams struct {
 	Name         string `json:"name"`
 	Mode         string `json:"mode"`
 	Url          string `json:"url"`
-	Token        string `json:"token"`
 	Dir          string `json:"dir"`
 	Pat          string `json:"pat"`
 	ScaleSetName string `json:"scale_set_name"`
@@ -36,7 +35,6 @@ func (q *Queries) CreateRunner(ctx context.Context, arg CreateRunnerParams) (Run
 		arg.Name,
 		arg.Mode,
 		arg.Url,
-		arg.Token,
 		arg.Dir,
 		arg.Pat,
 		arg.ScaleSetName,
@@ -50,7 +48,6 @@ func (q *Queries) CreateRunner(ctx context.Context, arg CreateRunnerParams) (Run
 		&i.Name,
 		&i.Mode,
 		&i.Url,
-		&i.Token,
 		&i.Dir,
 		&i.Pat,
 		&i.ScaleSetName,
@@ -82,7 +79,7 @@ func (q *Queries) DeleteRunnerByName(ctx context.Context, name string) error {
 }
 
 const getRunner = `-- name: GetRunner :one
-SELECT id, name, mode, url, token, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at FROM runners WHERE id = ? LIMIT 1
+SELECT id, name, mode, url, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at FROM runners WHERE id = ? LIMIT 1
 `
 
 func (q *Queries) GetRunner(ctx context.Context, id int64) (Runner, error) {
@@ -93,7 +90,6 @@ func (q *Queries) GetRunner(ctx context.Context, id int64) (Runner, error) {
 		&i.Name,
 		&i.Mode,
 		&i.Url,
-		&i.Token,
 		&i.Dir,
 		&i.Pat,
 		&i.ScaleSetName,
@@ -107,7 +103,7 @@ func (q *Queries) GetRunner(ctx context.Context, id int64) (Runner, error) {
 }
 
 const getRunnerByName = `-- name: GetRunnerByName :one
-SELECT id, name, mode, url, token, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at FROM runners WHERE name = ? LIMIT 1
+SELECT id, name, mode, url, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at FROM runners WHERE name = ? LIMIT 1
 `
 
 func (q *Queries) GetRunnerByName(ctx context.Context, name string) (Runner, error) {
@@ -118,7 +114,35 @@ func (q *Queries) GetRunnerByName(ctx context.Context, name string) (Runner, err
 		&i.Name,
 		&i.Mode,
 		&i.Url,
-		&i.Token,
+		&i.Dir,
+		&i.Pat,
+		&i.ScaleSetName,
+		&i.MaxRunners,
+		&i.Labels,
+		&i.RunnerGroup,
+		&i.JobsCompleted,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getRunnerByURLMode = `-- name: GetRunnerByURLMode :one
+SELECT id, name, mode, url, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at FROM runners WHERE url = ? AND mode = ? LIMIT 1
+`
+
+type GetRunnerByURLModeParams struct {
+	Url  string `json:"url"`
+	Mode string `json:"mode"`
+}
+
+func (q *Queries) GetRunnerByURLMode(ctx context.Context, arg GetRunnerByURLModeParams) (Runner, error) {
+	row := q.db.QueryRowContext(ctx, getRunnerByURLMode, arg.Url, arg.Mode)
+	var i Runner
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Mode,
+		&i.Url,
 		&i.Dir,
 		&i.Pat,
 		&i.ScaleSetName,
@@ -141,7 +165,7 @@ func (q *Queries) IncrementJobsCompleted(ctx context.Context, name string) error
 }
 
 const listRunners = `-- name: ListRunners :many
-SELECT id, name, mode, url, token, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at FROM runners ORDER BY name ASC
+SELECT id, name, mode, url, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at FROM runners ORDER BY name ASC
 `
 
 func (q *Queries) ListRunners(ctx context.Context) ([]Runner, error) {
@@ -158,7 +182,6 @@ func (q *Queries) ListRunners(ctx context.Context) ([]Runner, error) {
 			&i.Name,
 			&i.Mode,
 			&i.Url,
-			&i.Token,
 			&i.Dir,
 			&i.Pat,
 			&i.ScaleSetName,
@@ -184,19 +207,15 @@ func (q *Queries) ListRunners(ctx context.Context) ([]Runner, error) {
 const updateRunner = `-- name: UpdateRunner :one
 UPDATE runners
 SET 
-    url = COALESCE(?2, url),
-    token = COALESCE(?3, token),
-    pat = COALESCE(?4, pat),
-    max_runners = COALESCE(?5, max_runners),
-    labels = COALESCE(?6, labels),
-    runner_group = COALESCE(?7, runner_group)
-WHERE id = ?
-RETURNING id, name, mode, url, token, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at
+    pat = COALESCE(?1, pat),
+    max_runners = COALESCE(?2, max_runners),
+    labels = COALESCE(?3, labels),
+    runner_group = COALESCE(?4, runner_group)
+WHERE id = ?5
+RETURNING id, name, mode, url, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at
 `
 
 type UpdateRunnerParams struct {
-	Url         sql.NullString `json:"url"`
-	Token       sql.NullString `json:"token"`
 	Pat         sql.NullString `json:"pat"`
 	MaxRunners  sql.NullInt64  `json:"max_runners"`
 	Labels      sql.NullString `json:"labels"`
@@ -206,8 +225,6 @@ type UpdateRunnerParams struct {
 
 func (q *Queries) UpdateRunner(ctx context.Context, arg UpdateRunnerParams) (Runner, error) {
 	row := q.db.QueryRowContext(ctx, updateRunner,
-		arg.Url,
-		arg.Token,
 		arg.Pat,
 		arg.MaxRunners,
 		arg.Labels,
@@ -220,7 +237,6 @@ func (q *Queries) UpdateRunner(ctx context.Context, arg UpdateRunnerParams) (Run
 		&i.Name,
 		&i.Mode,
 		&i.Url,
-		&i.Token,
 		&i.Dir,
 		&i.Pat,
 		&i.ScaleSetName,

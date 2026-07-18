@@ -71,8 +71,21 @@ func (m *ScaleSetManager) runListener(ctx context.Context, cfg *config.RunnerCon
 		ScaleSetID: scaleSet.ID,
 	})
 
-	sessionClient, err := client.MessageSessionClient(ctx, scaleSet.ID, "github-mux")
-	if err != nil {
+	// Create message session with retry on 409 Conflict.
+	// On hard restart (container killed), the old session isn't closed gracefully,
+	// leaving a stale session on GitHub's side. Retry gives GitHub time to clean up.
+	var sessionClient *scaleset.MessageSessionClient
+	maxRetries := 3
+	for attempt := range maxRetries {
+		sessionClient, err = client.MessageSessionClient(ctx, scaleSet.ID, "github-mux")
+		if err == nil {
+			break
+		}
+		if strings.Contains(err.Error(), "409 Conflict") && attempt < maxRetries-1 {
+			log.Printf("[%s] Session conflict (stale session from previous run?), retrying in 10s... (attempt %d/%d)", cfg.Name, attempt+1, maxRetries)
+			time.Sleep(10 * time.Second)
+			continue
+		}
 		return fmt.Errorf("failed to create message session client: %w", err)
 	}
 	defer func() {
