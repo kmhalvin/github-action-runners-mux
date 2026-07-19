@@ -2,37 +2,122 @@ package scaleset
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/kmhalvin/github-action-runners-mux/config"
-	"github.com/kmhalvin/github-action-runners-mux/orchestrator"
-
 	"github.com/actions/scaleset"
-	"github.com/actions/scaleset/listener"
+	"github.com/kmhalvin/github-action-runners-mux/config"
+	"github.com/kmhalvin/github-action-runners-mux/db/sqlc"
+	"github.com/kmhalvin/github-action-runners-mux/orchestrator"
+	"github.com/kmhalvin/github-action-runners-mux/pkg/mux"
 )
 
 type ScaleSetManager struct {
-	orch *orchestrator.Orchestrator
+	*mux.BaseManager
+	orch      *orchestrator.Orchestrator
+	db        *sql.DB
+	queries   *sqlc.Queries
+	cancels   map[string]context.CancelFunc
 }
 
-func NewScaleSetManager(orch *orchestrator.Orchestrator) *ScaleSetManager {
-	return &ScaleSetManager{
-		orch: orch,
+func NewScaleSetManager(orch *orchestrator.Orchestrator, db *sql.DB, queries *sqlc.Queries) *ScaleSetManager {
+	m := &ScaleSetManager{
+		orch:    orch,
+		db:      db,
+		queries: queries,
+		cancels: make(map[string]context.CancelFunc),
+	}
+	m.BaseManager = mux.NewBaseManager(m)
+	return m
+}
+
+// Launch implements mux.ManagerHooks
+func (m *ScaleSetManager) Launch(ctx context.Context, cfg *config.RunnerConfig) error {
+	// Get global max workers for fallback
+	maxWorkers := 5
+	val, err := m.queries.GetSetting(ctx, "max_workers")
+	if err == nil {
+		if mw, err := strconv.Atoi(val); err == nil {
+			maxWorkers = mw
+		}
+	}
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	
+	m.BaseManager.Mu.Lock()
+	m.cancels[cfg.Name] = cancel
+	m.BaseManager.Mu.Unlock()
+
+	go func() {
+		err := m.runListener(runCtx, cfg, maxWorkers)
+		if err != nil {
+			m.BaseManager.Transition(cfg.Name, mux.StateFailed)
+			m.BaseManager.SetError(cfg.Name, err.Error())
+			log.Printf("[%s] ScaleSet Listener exited with error: %v", cfg.Name, err)
+		} else {
+			m.BaseManager.Transition(cfg.Name, mux.StateOffline)
+			m.BaseManager.SetError(cfg.Name, "")
+			log.Printf("[%s] ScaleSet Listener exited cleanly", cfg.Name)
+		}
+		
+		m.BaseManager.Mu.Lock()
+		delete(m.cancels, cfg.Name)
+		m.BaseManager.Mu.Unlock()
+	}()
+
+	// Wait for the listener to come online, fail, or timeout.
+	// This catches fast failures synchronously.
+	timeout := time.After(60 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			m.BaseManager.Mu.RLock()
+			proc, exists := m.BaseManager.Processes[cfg.Name]
+			m.BaseManager.Mu.RUnlock()
+			if exists {
+				if proc.State == mux.StateOnline {
+					return nil // success
+				}
+				if proc.State == mux.StateFailed {
+					return fmt.Errorf("scaleset listener failed: %s", proc.Error)
+				}
+			}
+		case <-timeout:
+			log.Printf("[%s] ScaleSet listener still registering after 60s — continuing in background", cfg.Name)
+			return nil
+		}
 	}
 }
 
-func (m *ScaleSetManager) StartRunner(ctx context.Context, cfg *config.RunnerConfig, maxWorkers int) {
-	log.Printf("[%s] Starting ScaleSet listener...", cfg.Name)
+// Halt implements mux.ManagerHooks
+func (m *ScaleSetManager) Halt(name string, force bool) error {
+	m.BaseManager.Mu.Lock()
+	cancel, exists := m.cancels[name]
+	m.BaseManager.Mu.Unlock()
+	
+	if exists && cancel != nil {
+		cancel()
+	}
+	return nil
+}
+
+// Cleanup implements mux.ManagerHooks
+func (m *ScaleSetManager) Cleanup(cfg config.RunnerConfig) error {
+	ctx := context.Background()
 
 	client, err := scaleset.NewClientWithPersonalAccessToken(scaleset.NewClientWithPersonalAccessTokenConfig{
 		GitHubConfigURL:     cfg.URL,
 		PersonalAccessToken: cfg.PAT,
 	})
 	if err != nil {
-		log.Printf("[%s] Failed to create scaleset client: %v", cfg.Name, err)
-		return
+		return fmt.Errorf("failed to create scaleset client: %w", err)
 	}
 
 	runnerGroup := cfg.Group
@@ -46,80 +131,39 @@ func (m *ScaleSetManager) StartRunner(ctx context.Context, cfg *config.RunnerCon
 	} else {
 		rg, err := client.GetRunnerGroupByName(ctx, runnerGroup)
 		if err != nil {
-			log.Printf("[%s] Failed to get runner group ID: %v", cfg.Name, err)
-			return
+			return fmt.Errorf("failed to get runner group ID: %w", err)
 		}
 		runnerGroupID = rg.ID
 	}
 
 	scaleSet, err := client.GetRunnerScaleSet(ctx, runnerGroupID, cfg.ScaleSetName)
 	if err != nil {
-		log.Printf("[%s] Failed to get runner scale set: %v", cfg.Name, err)
-		return
+		if strings.Contains(err.Error(), "404") {
+			log.Printf("[%s] Scale set not found on GitHub — nothing to deregister", cfg.Name)
+			return nil
+		}
+		return fmt.Errorf("failed to get runner scale set: %w", err)
 	}
 	if scaleSet == nil {
-		// If not found, create it
-		labels := []scaleset.Label{{Name: cfg.ScaleSetName, Type: "custom"}}
-		if len(cfg.Labels) > 0 {
-			for _, lbl := range cfg.Labels {
-				lbl = strings.TrimSpace(lbl)
-				if lbl != "" {
-					labels = append(labels, scaleset.Label{Name: lbl, Type: "custom"})
-				}
-			}
-		}
-
-		scaleSet, err = client.CreateRunnerScaleSet(ctx, &scaleset.RunnerScaleSet{
-			Name:          cfg.ScaleSetName,
-			RunnerGroupID: runnerGroupID,
-			Labels:        labels,
-		})
-		if err != nil {
-			log.Printf("[%s] Failed to create runner scale set: %v", cfg.Name, err)
-			return
-		}
+		log.Printf("[%s] Scale set not found on GitHub — nothing to deregister", cfg.Name)
+		return nil
 	}
 
-	client.SetSystemInfo(scaleset.SystemInfo{
-		ScaleSetID: scaleSet.ID,
-	})
-
-	sessionClient, err := client.MessageSessionClient(ctx, scaleSet.ID, "github-mux")
-	if err != nil {
-		log.Printf("[%s] Failed to create message session client: %v", cfg.Name, err)
-		return
-	}
-	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := sessionClient.Close(closeCtx); err != nil {
-			log.Printf("[%s] Failed to close message session: %v", cfg.Name, err)
-		}
-	}()
-
-	log.Printf("[%s] Initializing listener", cfg.Name)
-	listenerMaxRunners := maxWorkers // Default to global max workers
-	if cfg.MaxRunners > 0 {
-		listenerMaxRunners = cfg.MaxRunners // Override for this scale set
-	}
-	lsnr, err := listener.New(sessionClient, listener.Config{
-		ScaleSetID: scaleSet.ID,
-		MaxRunners: listenerMaxRunners,
-	})
-	if err != nil {
-		log.Printf("[%s] Failed to create listener: %v", cfg.Name, err)
-		return
+	log.Printf("[%s] Deleting scale set '%s' (ID: %d) from GitHub...", cfg.Name, cfg.ScaleSetName, scaleSet.ID)
+	if err := client.DeleteRunnerScaleSet(ctx, scaleSet.ID); err != nil {
+		return fmt.Errorf("failed to delete runner scale set: %w", err)
 	}
 
-	scaler := &Scaler{
-		orch:           m.orch,
-		runnerName:     cfg.Name,
-		scaleSetID:     scaleSet.ID,
-		scalesetClient: client,
-		maxRunners:     listenerMaxRunners,
-	}
+	log.Printf("[%s] Successfully deleted scale set from GitHub", cfg.Name)
+	return nil
+}
 
-	if err := lsnr.Run(ctx, scaler); err != nil {
-		log.Printf("[%s] Listener run failed: %v", cfg.Name, err)
-	}
+// Mode implements mux.ManagerHooks
+func (m *ScaleSetManager) Mode() string {
+	return "scaleset"
+}
+
+// MarkIdle overrides BaseManager.MarkIdle to return to Online state unconditionally.
+func (m *ScaleSetManager) MarkIdle(name string) {
+	m.BaseManager.MarkIdle(name, mux.StateOnline)
 }

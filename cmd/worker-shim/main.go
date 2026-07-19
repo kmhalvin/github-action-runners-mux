@@ -13,8 +13,10 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/kmhalvin/github-action-runners-mux/api"
+	"github.com/kmhalvin/github-action-runners-mux/config"
 )
 
 // workerHeader is the framed preamble sent over the TCP connection before the
@@ -51,9 +53,14 @@ func main() {
 	execPath, _ := os.Executable()
 	runnerDir := filepath.Dir(filepath.Dir(execPath))
 	runnerName := filepath.Base(runnerDir)
-
+	var meta config.MuxMeta
+	if nameBytes, err := os.ReadFile(filepath.Join(runnerDir, ".mux-meta.json")); err == nil {
+		if err := json.Unmarshal(nameBytes, &meta); err == nil && meta.RunnerName != "" {
+			runnerName = meta.RunnerName
+		}
+	}
 	reqBody, _ := json.Marshal(api.AllocateRequest{
-		RunnerName: api.RunnerName(runnerName),
+		RunnerName: runnerName,
 		RunnerDir:  runnerDir,
 	})
 
@@ -84,7 +91,8 @@ func main() {
 	}
 
 	workerIP := allocResponse.WorkerIP
-	log.Printf("[Worker Shim] Worker allocated at IP: %s (config files: %d)", workerIP, len(allocResponse.ConfigFiles))
+	configFiles := readRunnerConfigFiles(runnerDir)
+	log.Printf("[Worker Shim] Worker allocated at IP: %s (config files: %d)", workerIP, len(configFiles))
 
 	// 2. Connect to Worker TCP Stream
 	conn, err := net.Dial("tcp", fmt.Sprintf("%s:9000", workerIP))
@@ -96,7 +104,7 @@ func main() {
 	// 2a. Send framed header so the worker-launcher receives the runner's config
 	// files. The header is a 4-byte big-endian length prefix followed by JSON.
 	// After the header, the connection becomes a raw bidirectional byte pipe.
-	if err := writeFramedHeader(conn, workerHeader{ConfigFiles: allocResponse.ConfigFiles}); err != nil {
+	if err := writeFramedHeader(conn, workerHeader{ConfigFiles: configFiles}); err != nil {
 		log.Fatalf("[Worker Shim] Failed to send config files header: %v", err)
 	}
 
@@ -132,16 +140,38 @@ func main() {
 	<-errChan
 
 	// 4. Get Exit Code from Worker HTTP
+	// Retry with backoff: the worker-launcher may be in a brief race between
+	// flushing the HTTP response and os.Exit(), or the 5s container exit
+	// timeout may fire before our first attempt lands. Retries handle both.
 	log.Printf("[Worker Shim] Streams closed. Fetching exit code from worker...")
-	exitResp, err := http.Get(fmt.Sprintf("http://%s:9001/wait", workerIP))
-	if err != nil {
-		log.Fatalf("[Worker Shim] Failed to get exit code: %v", err)
-	}
-	defer exitResp.Body.Close()
 
 	var exitData api.WaitResponse
-	if err := json.NewDecoder(exitResp.Body).Decode(&exitData); err != nil {
-		log.Fatalf("[Worker Shim] Failed to decode exit code: %v", err)
+	var lastErr error
+	waitClient := &http.Client{Timeout: 3 * time.Second}
+	waitURL := fmt.Sprintf("http://%s:9001/wait", workerIP)
+
+	for attempt := range 5 {
+		exitResp, err := waitClient.Get(waitURL)
+
+		if err != nil {
+			lastErr = err
+			log.Printf("[Worker Shim] /wait attempt %d failed: %v", attempt+1, err)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		if err := json.NewDecoder(exitResp.Body).Decode(&exitData); err != nil {
+			exitResp.Body.Close()
+			lastErr = err
+			log.Printf("[Worker Shim] /wait attempt %d decode failed: %v", attempt+1, err)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		exitResp.Body.Close()
+		lastErr = nil
+		break
+	}
+	if lastErr != nil {
+		log.Fatalf("[Worker Shim] Failed to get exit code after retries: %v", lastErr)
 	}
 
 	exitCode := exitData.ExitCode

@@ -119,8 +119,7 @@ RUN curl -L -o actions.tar.gz \
     && tar -zxf actions.tar.gz \
     && rm -f actions.tar.gz \
     && ./bin/installdependencies.sh \
-    && mkdir -p /_work \
-    && chown -R runner /_work /actions-runner /opt/hostedtoolcache
+    && chown -R runner /actions-runner /opt/hostedtoolcache
 
 # ── Copy our proxy and shims ─────────────────────────────────────────────────
 COPY --from=builder /app/worker-launcher /usr/local/bin/worker-launcher

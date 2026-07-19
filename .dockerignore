@@ -1,0 +1,13 @@
+.git
+.agents
+node_modules
+*.db
+config.yaml
+.env
+.env.*
+web/dist
+LICENSE
+README.md
+mux-data
+runner-data
+.workspace_rag

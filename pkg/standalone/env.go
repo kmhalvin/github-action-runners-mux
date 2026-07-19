@@ -12,10 +12,6 @@ import (
 	"github.com/kmhalvin/github-action-runners-mux/config"
 )
 
-type MuxMeta struct {
-	Token string `json:"token"`
-	URL   string `json:"url"`
-}
 
 // InitializeEnvironment checks if the runner is registered and runs config.sh if needed.
 // On every startup it re-injects the worker-shim so that the shim binary always
@@ -26,6 +22,14 @@ func InitializeEnvironment(cfg *config.RunnerConfig) error {
 	if err := os.MkdirAll(cfg.Dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", cfg.Dir, err)
 	}
+
+	// Always save/update the meta file (especially important for upgrading older registered runners)
+	meta := config.MuxMeta{
+		RunnerName: cfg.Name,
+		URL:        cfg.URL,
+	}
+	metaData, _ := json.Marshal(meta)
+	_ = os.WriteFile(filepath.Join(cfg.Dir, ".mux-meta.json"), metaData, 0644)
 
 	credsFile := filepath.Join(cfg.Dir, ".credentials")
 	alreadyRegistered := false
@@ -44,6 +48,28 @@ func InitializeEnvironment(cfg *config.RunnerConfig) error {
 		cpCmd := exec.Command("cp", "-a", "/actions-runner/.", cfg.Dir+"/")
 		if err := cpCmd.Run(); err != nil {
 			return fmt.Errorf("failed to copy runner template to %s: %w", cfg.Dir, err)
+		}
+	} else {
+		log.Printf("[%s] Runner template found. Syncing binaries from /actions-runner for upgrade...", cfg.Name)
+		
+		// Sync bin/ directory, deleting any stale files
+		syncCmd := exec.Command("rsync", "-a", "--delete", "/actions-runner/bin/", filepath.Join(cfg.Dir, "bin/"))
+		if err := syncCmd.Run(); err != nil {
+			return fmt.Errorf("failed to sync bin directory to %s: %w", cfg.Dir, err)
+		}
+		
+		// Sync externals/ directory, deleting any stale files
+		syncCmd = exec.Command("rsync", "-a", "--delete", "/actions-runner/externals/", filepath.Join(cfg.Dir, "externals/"))
+		if err := syncCmd.Run(); err != nil {
+			return fmt.Errorf("failed to sync externals directory to %s: %w", cfg.Dir, err)
+		}
+
+		// Copy top-level scripts safely without overwriting the root directory
+		for _, file := range []string{"config.sh", "run.sh", "env.sh", "run-helper.sh"} {
+			src := filepath.Join("/actions-runner", file)
+			if _, err := os.Stat(src); err == nil {
+				_ = exec.Command("cp", "-a", src, filepath.Join(cfg.Dir, file)).Run()
+			}
 		}
 	}
 
@@ -103,14 +129,6 @@ func InitializeEnvironment(cfg *config.RunnerConfig) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("[%s] failed to register runner: %w", cfg.Name, err)
 	}
-
-	// Save the token and URL for future deregistration (if the runner is removed from config)
-	meta := MuxMeta{
-		Token: cfg.Token,
-		URL:   cfg.URL,
-	}
-	metaData, _ := json.Marshal(meta)
-	_ = os.WriteFile(filepath.Join(cfg.Dir, ".mux-meta.json"), metaData, 0644)
 
 	log.Printf("[%s] Runner successfully registered", cfg.Name)
 	return nil

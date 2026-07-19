@@ -1,19 +1,31 @@
-version: '3.8'
-
 services:
   github-mux-proxy:
+    networks:
+      - github-mux_default
     build:
       context: .
       dockerfile: Dockerfile
     image: github-mux-proxy:latest
     container_name: github-mux
+    environment:
+      - DB_PATH=/etc/github-mux/github-mux.db
+      # - BASE_PATH=/runner
     restart: unless-stopped
     # Ensure Docker's stop signal allows the 30-minute graceful drain
     stop_grace_period: 30m
+    ports:
+      - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./config.sample.yaml:/etc/github-mux/config.yaml:ro
-      - runner-data:/opt/runners
+      - ./mux-data:/etc/github-mux
+      - ./mux-data:/etc/multi-listener
+      - ./runner-data:/opt/runners
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   github-mux-worker:
     build:
@@ -23,5 +35,7 @@ services:
     profiles:
       - donotstart
 
-volumes:
-  runner-data:
+networks:
+  github-mux_default:
+    external: true
+    driver: bridge
