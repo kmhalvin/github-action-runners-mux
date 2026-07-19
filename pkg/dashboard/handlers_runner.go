@@ -119,21 +119,7 @@ func (api *API) createRunner(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Prepare config for manager
-	var cfgLabels []string
-	if payload.Mode == "standalone" {
-		cfgLabels = payload.Labels
-	}
-	cfg := config.RunnerConfig{
-		Name:         payload.Name,
-		Mode:         payload.Mode,
-		URL:          payload.URL,
-		Dir:          payload.Dir,
-		PAT:          payload.PAT,
-		ScaleSetName: payload.ScaleSetName,
-		MaxRunners:   payload.MaxRunners,
-		Labels:       cfgLabels,
-		Group:        payload.RunnerGroup,
-	}
+	cfg := config.RunnerConfigFromDB(dbRunner)
 
 	// For standalone mode, generate registration token using OAuth token
 	if payload.Mode == "standalone" {
@@ -295,21 +281,7 @@ func (api *API) updateRunner(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build config for retry
-	var cfgLabels []string
-	if updatedRunner.Mode == "standalone" && updatedRunner.Labels != "" {
-		cfgLabels = strings.Split(updatedRunner.Labels, ",")
-	}
-	cfg := config.RunnerConfig{
-		Name:         updatedRunner.Name,
-		Mode:         updatedRunner.Mode,
-		URL:          updatedRunner.Url,
-		Dir:          updatedRunner.Dir,
-		PAT:          updatedRunner.Pat,
-		ScaleSetName: updatedRunner.ScaleSetName,
-		MaxRunners:   int(updatedRunner.MaxRunners),
-		Labels:       cfgLabels,
-		Group:        updatedRunner.RunnerGroup,
-	}
+	cfg := config.RunnerConfigFromDB(updatedRunner)
 
 	// For standalone mode, only generate a registration token if the runner
 	// is not yet registered. If already registered (has .credentials), the
@@ -391,15 +363,7 @@ func (api *API) deleteRunner(w http.ResponseWriter, r *http.Request) {
 		_ = api.mux.RemoveRunner(context.Background(), rName, true, rMode) // Ensure killed
 
 		// Build config from DB record for deregistration.
-		deregCfg := config.RunnerConfig{
-			Name:         dbRunner.Name,
-			Mode:         dbRunner.Mode,
-			URL:          dbRunner.Url,
-			Dir:          dbRunner.Dir,
-			PAT:          dbRunner.Pat,
-			ScaleSetName: dbRunner.ScaleSetName,
-			Group:        dbRunner.RunnerGroup,
-		}
+		deregCfg := config.RunnerConfigFromDB(dbRunner)
 
 		// For standalone mode, generate a fresh registration token for deregistration
 		// using the OAuth token extracted before the request completed.

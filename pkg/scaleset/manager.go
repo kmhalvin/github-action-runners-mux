@@ -7,7 +7,6 @@ import (
 	"log"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/actions/scaleset"
@@ -17,45 +16,27 @@ import (
 	"github.com/kmhalvin/github-action-runners-mux/pkg/mux"
 )
 
-type ScaleSetProcess struct {
-	Config        *config.RunnerConfig
-	Cancel        context.CancelFunc
-	State         mux.RunnerState
-	Error         string
-	ActiveWorkers int
-}
-
 type ScaleSetManager struct {
+	*mux.BaseManager
 	orch      *orchestrator.Orchestrator
 	db        *sql.DB
 	queries   *sqlc.Queries
-	processes map[string]*ScaleSetProcess
-	mutex     sync.RWMutex
+	cancels   map[string]context.CancelFunc
 }
 
 func NewScaleSetManager(orch *orchestrator.Orchestrator, db *sql.DB, queries *sqlc.Queries) *ScaleSetManager {
-	return &ScaleSetManager{
-		orch:      orch,
-		db:        db,
-		queries:   queries,
-		processes: make(map[string]*ScaleSetProcess),
+	m := &ScaleSetManager{
+		orch:    orch,
+		db:      db,
+		queries: queries,
+		cancels: make(map[string]context.CancelFunc),
 	}
+	m.BaseManager = mux.NewBaseManager(m)
+	return m
 }
 
-func (m *ScaleSetManager) Start(ctx context.Context, cfg config.RunnerConfig) error {
-	m.mutex.Lock()
-	if rp, exists := m.processes[cfg.Name]; exists && rp.State != mux.StateOffline && rp.State != mux.StateFailed {
-		m.mutex.Unlock()
-		return fmt.Errorf("scaleset runner %s is already running", cfg.Name)
-	}
-
-	rp := &ScaleSetProcess{
-		Config: &cfg,
-		State:  mux.StateRegistering,
-	}
-	m.processes[cfg.Name] = rp
-	m.mutex.Unlock()
-
+// Launch implements mux.ManagerHooks
+func (m *ScaleSetManager) Launch(ctx context.Context, cfg *config.RunnerConfig) error {
 	// Get global max workers for fallback
 	maxWorkers := 5
 	val, err := m.queries.GetSetting(ctx, "max_workers")
@@ -66,29 +47,30 @@ func (m *ScaleSetManager) Start(ctx context.Context, cfg config.RunnerConfig) er
 	}
 
 	runCtx, cancel := context.WithCancel(context.Background())
-	rp.Cancel = cancel
+	
+	m.BaseManager.Mu.Lock()
+	m.cancels[cfg.Name] = cancel
+	m.BaseManager.Mu.Unlock()
 
 	go func() {
-		err := m.runListener(runCtx, &cfg, maxWorkers, rp)
-		m.mutex.Lock()
+		err := m.runListener(runCtx, cfg, maxWorkers)
 		if err != nil {
-			rp.State = mux.StateFailed
-			rp.Error = err.Error()
+			m.BaseManager.Transition(cfg.Name, mux.StateFailed)
+			m.BaseManager.SetError(cfg.Name, err.Error())
 			log.Printf("[%s] ScaleSet Listener exited with error: %v", cfg.Name, err)
 		} else {
-			rp.State = mux.StateOffline
-			rp.Error = ""
+			m.BaseManager.Transition(cfg.Name, mux.StateOffline)
+			m.BaseManager.SetError(cfg.Name, "")
 			log.Printf("[%s] ScaleSet Listener exited cleanly", cfg.Name)
 		}
-		m.mutex.Unlock()
+		
+		m.BaseManager.Mu.Lock()
+		delete(m.cancels, cfg.Name)
+		m.BaseManager.Mu.Unlock()
 	}()
 
 	// Wait for the listener to come online, fail, or timeout.
-	// This catches fast failures (bad PAT, bad URL, scale set creation
-	// errors) synchronously so the HTTP handler can return an error and
-	// the frontend can redirect to the detail page for editing/retry.
-	// If the listener is still registering after 60s, return nil and let
-	// it continue in the background (same as the old async behavior).
+	// This catches fast failures synchronously.
 	timeout := time.After(60 * time.Second)
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
@@ -96,17 +78,17 @@ func (m *ScaleSetManager) Start(ctx context.Context, cfg config.RunnerConfig) er
 	for {
 		select {
 		case <-ticker.C:
-			m.mutex.RLock()
-			state := rp.State
-			errMsg := rp.Error
-			m.mutex.RUnlock()
-			if state == mux.StateOnline {
-				return nil // success — listener is running
+			m.BaseManager.Mu.RLock()
+			proc, exists := m.BaseManager.Processes[cfg.Name]
+			m.BaseManager.Mu.RUnlock()
+			if exists {
+				if proc.State == mux.StateOnline {
+					return nil // success
+				}
+				if proc.State == mux.StateFailed {
+					return fmt.Errorf("scaleset listener failed: %s", proc.Error)
+				}
 			}
-			if state == mux.StateFailed {
-				return fmt.Errorf("scaleset listener failed: %s", errMsg)
-			}
-			// Still Registering — keep waiting
 		case <-timeout:
 			log.Printf("[%s] ScaleSet listener still registering after 60s — continuing in background", cfg.Name)
 			return nil
@@ -114,30 +96,20 @@ func (m *ScaleSetManager) Start(ctx context.Context, cfg config.RunnerConfig) er
 	}
 }
 
-func (m *ScaleSetManager) Stop(name string, force bool) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-	rp, exists := m.processes[name]
-	if !exists {
-		return fmt.Errorf("scaleset runner %s not found", name)
+// Halt implements mux.ManagerHooks
+func (m *ScaleSetManager) Halt(name string, force bool) error {
+	m.BaseManager.Mu.Lock()
+	cancel, exists := m.cancels[name]
+	m.BaseManager.Mu.Unlock()
+	
+	if exists && cancel != nil {
+		cancel()
 	}
-
-	if rp.State == mux.StateOffline || rp.State == mux.StateFailed {
-		return nil
-	}
-
-	rp.State = mux.StateDraining
-	if rp.Cancel != nil {
-		rp.Cancel()
-	}
-
 	return nil
 }
 
-// Deregister removes the runner scale set from GitHub using the PAT.
-// It creates a scaleset client, looks up the scale set by name, and deletes it.
-// If the scale set is not found on GitHub, it returns nil (nothing to delete).
-func (m *ScaleSetManager) Deregister(cfg config.RunnerConfig) error {
+// Cleanup implements mux.ManagerHooks
+func (m *ScaleSetManager) Cleanup(cfg config.RunnerConfig) error {
 	ctx := context.Background()
 
 	client, err := scaleset.NewClientWithPersonalAccessToken(scaleset.NewClientWithPersonalAccessTokenConfig{
@@ -184,4 +156,14 @@ func (m *ScaleSetManager) Deregister(cfg config.RunnerConfig) error {
 
 	log.Printf("[%s] Successfully deleted scale set from GitHub", cfg.Name)
 	return nil
+}
+
+// Mode implements mux.ManagerHooks
+func (m *ScaleSetManager) Mode() string {
+	return "scaleset"
+}
+
+// MarkIdle overrides BaseManager.MarkIdle to return to Online state unconditionally.
+func (m *ScaleSetManager) MarkIdle(name string) {
+	m.BaseManager.MarkIdle(name, mux.StateOnline)
 }

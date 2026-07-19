@@ -10,18 +10,6 @@ import (
 	"github.com/kmhalvin/github-action-runners-mux/db/sqlc"
 )
 
-type RunnerState string
-
-const (
-	StateRegistering RunnerState = "Registering"
-	StateOnline      RunnerState = "Online"
-	StateBusy        RunnerState = "Busy"
-	StatePaused      RunnerState = "Paused"
-	StateDraining    RunnerState = "Draining"
-	StateOffline     RunnerState = "Offline"
-	StateFailed      RunnerState = "Failed"
-)
-
 type RunnerStatus struct {
 	Name          string      `json:"name"`
 	Mode          string      `json:"mode"`

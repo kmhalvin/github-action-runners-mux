@@ -7,27 +7,12 @@ import (
 	"log"
 	"os/exec"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/kmhalvin/github-action-runners-mux/config"
 	"github.com/kmhalvin/github-action-runners-mux/pkg/mux"
 )
-
-// ListenerProcess represents a managed GitHub Actions Runner Listener
-type ListenerProcess struct {
-	Config        *config.RunnerConfig
-	Cmd           *exec.Cmd
-	PGID          int
-	Mutex         sync.Mutex
-	State         mux.RunnerState
-	Error         string
-	ActiveWorkers int
-	// retryCancel, if non-nil, signals the retry goroutine to stop sleeping.
-	// Set when the listener is running (so Stop can interrupt backoff waits).
-	retryCancel chan struct{}
-}
 
 const (
 	// maxListenerRetries is the number of times a listener that exits shortly
@@ -39,8 +24,8 @@ const (
 )
 
 // launchListener starts a new Runner.Listener process, wires up log streaming,
-// and updates rp with the new Cmd/PGID/state. Returns the started command.
-func (m *Manager) launchListener(cfg *config.RunnerConfig, rp *ListenerProcess) (*exec.Cmd, error) {
+// and updates listenerData with the new Cmd/PGID and state to Online. Returns the started command.
+func (m *Manager) launchListener(cfg *config.RunnerConfig) (*exec.Cmd, error) {
 	cmd := exec.Command("./bin/Runner.Listener", "run", "--startuptype", "service")
 	cmd.Dir = cfg.Dir
 
@@ -65,22 +50,29 @@ func (m *Manager) launchListener(cfg *config.RunnerConfig, rp *ListenerProcess) 
 		pgid = cmd.Process.Pid
 	}
 
-	m.mutex.Lock()
-	rp.Cmd = cmd
-	rp.PGID = pgid
-	rp.State = mux.StateOnline
-	rp.Error = ""
+	m.BaseManager.Mu.Lock()
+	if ld, exists := m.listenerData[cfg.Name]; exists {
+		ld.Cmd = cmd
+		ld.PGID = pgid
+	}
+
+	m.BaseManager.SetError(cfg.Name, "")
 
 	// If the system is globally paused at max capacity, instantly freeze this new listener
 	if m.globalPaused {
 		log.Printf("[%s] System is at max capacity. Instantly freezing new listener (PGID: %d)", cfg.Name, pgid)
 		if err := syscall.Kill(-pgid, syscall.SIGSTOP); err == nil {
-			rp.State = mux.StatePaused
+			m.BaseManager.Mu.Unlock()
+			m.BaseManager.Transition(cfg.Name, mux.StatePaused)
 		} else {
 			log.Printf("[%s] Failed to freeze new listener: %v", cfg.Name, err)
+			m.BaseManager.Mu.Unlock()
+			m.BaseManager.Transition(cfg.Name, mux.StateOnline)
 		}
+	} else {
+		m.BaseManager.Mu.Unlock()
+		m.BaseManager.Transition(cfg.Name, mux.StateOnline)
 	}
-	m.mutex.Unlock()
 
 	log.Printf("[%s] Started listener (PID: %d, PGID: %d)", cfg.Name, cmd.Process.Pid, pgid)
 
@@ -90,22 +82,17 @@ func (m *Manager) launchListener(cfg *config.RunnerConfig, rp *ListenerProcess) 
 	return cmd, nil
 }
 
-func (m *Manager) startRunner(cfg *config.RunnerConfig, rp *ListenerProcess) error {
+func (m *Manager) startRunner(cfg *config.RunnerConfig) error {
 	log.Printf("[%s] Starting Listener via Go command...", cfg.Name)
 
-	cmd, err := m.launchListener(cfg, rp)
+	cmd, err := m.launchListener(cfg)
 	if err != nil {
-		m.mutex.Lock()
-		rp.State = mux.StateOffline
-		rp.Error = err.Error()
-		m.mutex.Unlock()
+		m.BaseManager.Transition(cfg.Name, mux.StateFailed)
+		m.BaseManager.SetError(cfg.Name, err.Error())
 		return err
 	}
 
 	// Wait for the process to exit in a separate goroutine with auto-retry.
-	// If the listener exits shortly after starting (within fastFailThreshold),
-	// it's likely a transient failure (GitHub rate limit, network blip).
-	// We restart it up to maxListenerRetries times with exponential backoff.
 	go func() {
 		currentCmd := cmd
 		for attempt := 0; ; attempt++ {
@@ -113,35 +100,46 @@ func (m *Manager) startRunner(cfg *config.RunnerConfig, rp *ListenerProcess) err
 			err := currentCmd.Wait()
 			uptime := time.Since(startTime)
 
-			m.mutex.Lock()
-			wasDraining := rp.State == mux.StateDraining
+			m.BaseManager.Mu.Lock()
+			proc, procExists := m.BaseManager.Processes[cfg.Name]
+			wasDraining := false
+			if procExists {
+				wasDraining = proc.State == mux.StateDraining
+			}
+			ld := m.listenerData[cfg.Name]
+			m.BaseManager.Mu.Unlock()
 
 			if wasDraining || err == nil {
 				// Intentional stop (Stop() was called) or clean exit — no retry.
-				rp.State = mux.StateOffline
-				rp.Cmd = nil
-				rp.retryCancel = nil
+				m.BaseManager.Transition(cfg.Name, mux.StateOffline)
+				m.BaseManager.Mu.Lock()
+				if ld != nil {
+					ld.Cmd = nil
+					ld.retryCancel = nil
+				}
+				m.BaseManager.Mu.Unlock()
 				if err != nil {
-					rp.Error = err.Error()
+					m.BaseManager.SetError(cfg.Name, err.Error())
 					log.Printf("[%s] Listener exited with error: %v", cfg.Name, err)
 				} else {
-					rp.Error = ""
+					m.BaseManager.SetError(cfg.Name, "")
 					log.Printf("[%s] Listener exited cleanly", cfg.Name)
 				}
-				m.mutex.Unlock()
 				return
 			}
 
 			// Unexpected error exit.
 			if attempt < maxListenerRetries && uptime < fastFailThreshold {
 				// Transient failure — retry with exponential backoff.
-				rp.State = mux.StateRegistering
-				rp.Error = ""
-				rp.Cmd = nil
-				// Create a cancel channel so Stop() can interrupt the backoff.
+				m.BaseManager.Transition(cfg.Name, mux.StateRegistering)
+				m.BaseManager.SetError(cfg.Name, "")
 				cancelCh := make(chan struct{})
-				rp.retryCancel = cancelCh
-				m.mutex.Unlock()
+				m.BaseManager.Mu.Lock()
+				if ld != nil {
+					ld.Cmd = nil
+					ld.retryCancel = cancelCh
+				}
+				m.BaseManager.Mu.Unlock()
 
 				backoff := time.Duration((attempt+1)*10) * time.Second
 				log.Printf("[%s] Listener exited after %v (attempt %d/%d), retrying in %v...",
@@ -151,22 +149,26 @@ func (m *Manager) startRunner(cfg *config.RunnerConfig, rp *ListenerProcess) err
 				case <-time.After(backoff):
 				case <-cancelCh:
 					// Stop() was called during backoff — give up.
-					m.mutex.Lock()
-					rp.State = mux.StateOffline
-					rp.retryCancel = nil
-					m.mutex.Unlock()
+					m.BaseManager.Transition(cfg.Name, mux.StateOffline)
+					m.BaseManager.Mu.Lock()
+					if ld != nil {
+						ld.retryCancel = nil
+					}
+					m.BaseManager.Mu.Unlock()
 					log.Printf("[%s] Retry cancelled by Stop()", cfg.Name)
 					return
 				}
 
 				// Restart the listener process.
-				newCmd, launchErr := m.launchListener(cfg, rp)
+				newCmd, launchErr := m.launchListener(cfg)
 				if launchErr != nil {
-					m.mutex.Lock()
-					rp.State = mux.StateFailed
-					rp.Error = fmt.Sprintf("retry %d failed to launch: %v", attempt+1, launchErr)
-					rp.retryCancel = nil
-					m.mutex.Unlock()
+					m.BaseManager.Transition(cfg.Name, mux.StateFailed)
+					m.BaseManager.SetError(cfg.Name, fmt.Sprintf("retry %d failed to launch: %v", attempt+1, launchErr))
+					m.BaseManager.Mu.Lock()
+					if ld != nil {
+						ld.retryCancel = nil
+					}
+					m.BaseManager.Mu.Unlock()
 					log.Printf("[%s] Retry %d failed to launch listener: %v", cfg.Name, attempt+1, launchErr)
 					return
 				}
@@ -175,11 +177,14 @@ func (m *Manager) startRunner(cfg *config.RunnerConfig, rp *ListenerProcess) err
 			}
 
 			// Max retries exceeded or long-running failure — don't retry.
-			rp.State = mux.StateOffline
-			rp.Error = err.Error()
-			rp.Cmd = nil
-			rp.retryCancel = nil
-			m.mutex.Unlock()
+			m.BaseManager.Transition(cfg.Name, mux.StateOffline)
+			m.BaseManager.SetError(cfg.Name, err.Error())
+			m.BaseManager.Mu.Lock()
+			if ld != nil {
+				ld.Cmd = nil
+				ld.retryCancel = nil
+			}
+			m.BaseManager.Mu.Unlock()
 			log.Printf("[%s] Listener exited with error: %v", cfg.Name, err)
 			return
 		}
@@ -196,46 +201,5 @@ func (m *Manager) streamLogs(name string, r io.Reader, level string) {
 	}
 	if err := scanner.Err(); err != nil {
 		log.Printf("[%s] Error reading %s stream: %v", name, level, err)
-	}
-}
-
-func (m *Manager) LockOthers(activeRunners []string) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	m.globalPaused = true
-
-	activeMap := make(map[string]bool)
-	for _, name := range activeRunners {
-		activeMap[name] = true
-	}
-
-	for name, rp := range m.listeners {
-		if rp.State == mux.StateOnline && !activeMap[name] {
-			log.Printf("[Mutex] Sending SIGSTOP to %s (PGID: %d)", name, rp.PGID)
-			if err := syscall.Kill(-rp.PGID, syscall.SIGSTOP); err != nil {
-				log.Printf("[Mutex] Failed to freeze %s: %v", name, err)
-			} else {
-				rp.State = mux.StatePaused
-			}
-		}
-	}
-}
-
-func (m *Manager) UnlockOthers() {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	m.globalPaused = false
-
-	for name, rp := range m.listeners {
-		if rp.State == mux.StatePaused {
-			log.Printf("[Mutex] Sending SIGCONT to %s (PGID: %d)", name, rp.PGID)
-			if err := syscall.Kill(-rp.PGID, syscall.SIGCONT); err != nil {
-				log.Printf("[Mutex] Failed to unfreeze %s: %v", name, err)
-			} else {
-				rp.State = mux.StateOnline
-			}
-		}
 	}
 }

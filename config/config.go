@@ -1,5 +1,11 @@
 package config
 
+import (
+	"strings"
+
+	"github.com/kmhalvin/github-action-runners-mux/db/sqlc"
+)
+
 // RunnerConfig is the in-memory configuration for a runner. It is constructed
 // from the database (sqlc.Runner) and passed to the standalone/scaleset
 // managers. It is never serialized to or from YAML.
@@ -23,4 +29,22 @@ type RunnerConfig struct {
 type MuxMeta struct {
 	RunnerName string `json:"runner_name,omitempty"`
 	URL        string `json:"url"`
+}
+
+// RunnerConfigFromDB creates a RunnerConfig from a database Runner record.
+func RunnerConfigFromDB(r sqlc.Runner) RunnerConfig {
+	cfg := RunnerConfig{
+		Name:         r.Name,
+		Mode:         r.Mode,
+		URL:          r.Url,
+		Dir:          r.Dir,
+		PAT:          r.Pat,
+		ScaleSetName: r.ScaleSetName,
+		MaxRunners:   int(r.MaxRunners),
+		Group:        r.RunnerGroup,
+	}
+	if r.Labels != "" {
+		cfg.Labels = strings.Split(r.Labels, ",")
+	}
+	return cfg
 }

@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -140,22 +139,7 @@ func main() {
 			time.Sleep(startupDelay)
 		}
 
-		cfg := config.RunnerConfig{
-			Name:         r.Name,
-			Mode:         r.Mode,
-			URL:          r.Url,
-			Dir:          r.Dir,
-			PAT:          r.Pat,
-			ScaleSetName: r.ScaleSetName,
-			MaxRunners:   int(r.MaxRunners),
-		}
-
-		if r.Labels != "" {
-			cfg.Labels = strings.Split(r.Labels, ",")
-		}
-		if r.RunnerGroup != "" {
-			cfg.Group = r.RunnerGroup
-		}
+		cfg := config.RunnerConfigFromDB(r)
 
 		if err := multiplexer.AddRunner(context.Background(), cfg); err != nil {
 			log.Printf("Warning: failed to start runner %s: %v", r.Name, err)

@@ -14,7 +14,7 @@ import (
 	"github.com/actions/scaleset/listener"
 )
 
-func (m *ScaleSetManager) runListener(ctx context.Context, cfg *config.RunnerConfig, globalMaxWorkers int, rp *ScaleSetProcess) error {
+func (m *ScaleSetManager) runListener(ctx context.Context, cfg *config.RunnerConfig, globalMaxWorkers int) error {
 	log.Printf("[%s] Starting ScaleSet listener...", cfg.Name)
 
 	client, err := scaleset.NewClientWithPersonalAccessToken(scaleset.NewClientWithPersonalAccessTokenConfig{
@@ -114,9 +114,7 @@ func (m *ScaleSetManager) runListener(ctx context.Context, cfg *config.RunnerCon
 		maxRunners:     listenerMaxRunners,
 	}
 
-	m.mutex.Lock()
-	rp.State = mux.StateOnline
-	m.mutex.Unlock()
+	m.BaseManager.Transition(cfg.Name, mux.StateOnline)
 
 	return lsnr.Run(ctx, scaler)
 }
