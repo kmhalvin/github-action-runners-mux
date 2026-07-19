@@ -2,28 +2,11 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"log"
-	"net"
-	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
-	"sync"
 	"syscall"
 	"time"
-
-	"github.com/kmhalvin/github-action-runners-mux/api"
-	"github.com/kmhalvin/github-action-runners-mux/config"
-	"github.com/kmhalvin/github-action-runners-mux/db"
-	"github.com/kmhalvin/github-action-runners-mux/db/sqlc"
-	"github.com/kmhalvin/github-action-runners-mux/orchestrator"
-	"github.com/kmhalvin/github-action-runners-mux/pkg/dashboard"
-	"github.com/kmhalvin/github-action-runners-mux/pkg/mux"
-	"github.com/kmhalvin/github-action-runners-mux/pkg/scaleset"
-	"github.com/kmhalvin/github-action-runners-mux/pkg/standalone"
-
-	_ "github.com/mattn/go-sqlite3"
 )
 
 const DrainTimeout = 30 * time.Minute
@@ -33,7 +16,6 @@ func getDBPath() string {
 	if path := os.Getenv("DB_PATH"); path != "" {
 		return path
 	}
-	// Default to current directory if not in docker
 	return "github-mux.db"
 }
 
@@ -41,116 +23,15 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// 1. Initialize Database
-	sqliteDB, err := sql.Open("sqlite3", getDBPath())
+	app, err := NewApp(getDBPath(), "/etc/github-mux/auth.yaml")
 	if err != nil {
-		log.Fatalf("Fatal: failed to open database: %v", err)
-	}
-	defer sqliteDB.Close()
-
-	if err := db.RunMigrations(sqliteDB); err != nil {
-		log.Fatalf("Fatal: failed to run database migrations: %v", err)
+		log.Fatalf("Fatal: failed to initialize app: %v", err)
 	}
 
-	queries := sqlc.New(sqliteDB)
-
-	// 2. Get Settings from DB
-	maxWorkersStr, _ := queries.GetSetting(context.Background(), "max_workers")
-	warmWorkersStr, _ := queries.GetSetting(context.Background(), "warm_workers")
-
-	maxWorkers := DefaultMaxWorkers
-	if mw, err := strconv.Atoi(maxWorkersStr); err == nil && mw > 0 {
-		maxWorkers = mw
+	if err := app.Start(ctx); err != nil {
+		log.Fatalf("Fatal: failed to start app: %v", err)
 	}
 
-	warmWorkers := 0
-	if ww, err := strconv.Atoi(warmWorkersStr); err == nil && ww >= 0 {
-		warmWorkers = ww
-	}
-	warmWorkers = min(warmWorkers, maxWorkers)
-
-	// 3. Initialize Standalone Manager
-	stdManager := standalone.NewManager()
-
-	// 3b. Reconcile Configuration (Deregister stale standalone runners)
-	dbRunners, err := queries.ListRunners(context.Background())
-	if err != nil {
-		log.Fatalf("Fatal: failed to list runners from DB: %v", err)
-	}
-	stdManager.SyncStaleRunners(dbRunners)
-
-	// 4. Initialize Orchestrator
-	orch, err := orchestrator.NewOrchestrator(stdManager, maxWorkers, warmWorkers, sqliteDB, queries)
-	if err != nil {
-		log.Fatalf("Fatal: failed to initialize Orchestrator: %v", err)
-	}
-
-	// 5. Initialize ScaleSet Manager
-	ssManager := scaleset.NewScaleSetManager(orch, sqliteDB, queries)
-
-	// 6. Initialize Multiplexer
-	multiplexer := mux.NewMultiplexer(sqliteDB, queries, stdManager, ssManager)
-
-	// Link multiplexer as the status reporter for orchestrator events
-	orch.SetStatusReporter(multiplexer)
-
-	// 7. Start Unix socket server for Standalone shim allocations
-	os.Remove(api.SockPath)
-	listener, err := net.Listen("unix", api.SockPath)
-	if err != nil {
-		log.Fatalf("Fatal: failed to listen on unix socket: %v", err)
-	}
-	os.Chmod(api.SockPath, 0660)
-
-	go func() {
-		muxServer := http.NewServeMux()
-		muxServer.HandleFunc("/api/v1/worker/allocate", orch.HandleAllocate)
-
-		log.Printf("[Orchestrator] Listening on unix socket %s for Standalone Shim allocations...", api.SockPath)
-		if err := http.Serve(listener, muxServer); err != nil {
-			log.Printf("Fatal: orchestrator server failed: %v", err)
-		}
-	}()
-
-	// 8. Load auth config (for OAuth-based user authentication)
-	authCfg, err := config.LoadAuthConfig("/etc/github-mux/auth.yaml")
-	if err != nil {
-		log.Printf("Warning: failed to load auth config: %v", err)
-	}
-
-	// 9. Start Dashboard Server
-	dashboardAPI := dashboard.NewAPI(sqliteDB, queries, multiplexer, orch, authCfg)
-	go dashboard.ServeDashboard(dashboardAPI, ":8080")
-
-	// 10. Start all runners from DB
-	// Stagger standalone runner startup to avoid hitting GitHub's Actions
-	// session-creation API simultaneously.
-	startupDelay := 5 * time.Second
-	if d := os.Getenv("RUNNER_STARTUP_DELAY"); d != "" {
-		if parsed, err := time.ParseDuration(d); err == nil {
-			startupDelay = parsed
-		}
-	}
-
-	standaloneStarted := 0
-	for _, r := range dbRunners {
-		if r.Mode == "standalone" && standaloneStarted > 0 {
-			log.Printf("Staggering standalone runner startup: waiting %v before starting %s...", startupDelay, r.Name)
-			time.Sleep(startupDelay)
-		}
-
-		cfg := config.RunnerConfigFromDB(r)
-
-		if err := multiplexer.AddRunner(context.Background(), cfg); err != nil {
-			log.Printf("Warning: failed to start runner %s: %v", r.Name, err)
-		}
-
-		if r.Mode == "standalone" {
-			standaloneStarted++
-		}
-	}
-
-	// 11. Graceful Shutdown & Lifecycle Management
 	log.Printf("System fully booted. Waiting for interrupt signal to shutdown...")
 	<-ctx.Done()
 	log.Printf("Interrupt signal received, initiating graceful shutdown...")
@@ -158,32 +39,9 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), DrainTimeout)
 	defer shutdownCancel()
 
-	doneCh := make(chan struct{})
-	go func() {
-		// Stop all runners gracefully
-		var wg sync.WaitGroup
-		for _, r := range multiplexer.GetRunnerStatuses() {
-			wg.Add(1)
-			go func(name, mode string) {
-				defer wg.Done()
-				log.Printf("Shutting down %s runner %s...", mode, name)
-				if err := multiplexer.RemoveRunner(context.Background(), name, false, mode); err != nil {
-					log.Printf("Error shutting down runner %s: %v", name, err)
-				}
-			}(r.Name, r.Mode)
-		}
-		wg.Wait()
-		close(doneCh)
-	}()
-
-	select {
-	case <-doneCh:
-		log.Printf("Graceful shutdown completed.")
-	case <-shutdownCtx.Done():
-		log.Printf("Hard drain timeout reached (30m). Escalating to SIGKILL.")
-		// Force kill
-		for _, r := range multiplexer.GetRunnerStatuses() {
-			_ = multiplexer.RemoveRunner(context.Background(), r.Name, true, r.Mode)
-		}
+	if err := app.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Shutdown error: %v", err)
 	}
+	
+	log.Printf("Graceful shutdown completed.")
 }

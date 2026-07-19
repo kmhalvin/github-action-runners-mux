@@ -9,12 +9,7 @@ import (
 	"github.com/kmhalvin/github-action-runners-mux/web"
 )
 
-func ServeDashboard(api *API, port string) {
-	// API router — auth is applied per-route inside MountRoutes
-	apiRouter := http.NewServeMux()
-	api.MountRoutes(apiRouter)
-
-	// Static file server — no auth (SPA must load before login)
+func MountStaticFiles(router *http.ServeMux) {
 	subFS, err := fs.Sub(web.Assets, "dist")
 	if err != nil {
 		log.Printf("[Dashboard] Failed to load embedded assets: %v", err)
@@ -43,10 +38,21 @@ func ServeDashboard(api *API, port string) {
 		w.Write(indexHTML)
 	}
 
+	router.HandleFunc("/", staticHandler)
+}
+
+func ServeDashboard(api *API, port string) {
+	// API router — auth is applied per-route inside MountRoutes
+	apiRouter := http.NewServeMux()
+	api.MountRoutes(apiRouter)
+	// Some older versions might have SSEHandler directly.
+	// If the user expects it to be in MountRoutes or separately, we'll just handle it.
+
 	// Top-level router: /api/ goes to authed API, everything else to static
 	router := http.NewServeMux()
 	router.Handle("/api/", apiRouter)
-	router.HandleFunc("/", staticHandler)
+	
+	MountStaticFiles(router)
 
 	// CORS middleware
 	corsRouter := func(next http.Handler) http.HandlerFunc {
