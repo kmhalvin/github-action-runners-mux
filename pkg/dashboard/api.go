@@ -32,6 +32,7 @@ type API struct {
 	orch      *orchestrator.Orchestrator
 	authCfg   *config.AuthConfig
 	userCache cache.Cache[string, string] // token → username, TTL 5 min
+	runnerSvc *RunnerService
 }
 
 func NewAPI(db *sql.DB, queries *sqlc.Queries, mx *mux.Multiplexer, orch *orchestrator.Orchestrator, authCfg *config.AuthConfig) *API {
@@ -43,6 +44,7 @@ func NewAPI(db *sql.DB, queries *sqlc.Queries, mx *mux.Multiplexer, orch *orches
 		orch:      orch,
 		authCfg:   authCfg,
 		userCache: userCache,
+		runnerSvc: NewRunnerService(queries, mx),
 	}
 }
 

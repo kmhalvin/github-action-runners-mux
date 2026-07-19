@@ -1,18 +1,13 @@
 package dashboard
 
 import (
-	"context"
-	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/kmhalvin/github-action-runners-mux/config"
 	"github.com/kmhalvin/github-action-runners-mux/db/sqlc"
 	"github.com/kmhalvin/github-action-runners-mux/pkg/github"
 	"github.com/kmhalvin/github-action-runners-mux/pkg/mux"
@@ -35,41 +30,12 @@ func (api *API) generateRegToken(r *http.Request, runnerURL string) (string, err
 }
 
 func (api *API) listRunners(w http.ResponseWriter, r *http.Request) {
-	runners, err := api.queries.ListRunners(r.Context())
+	runners, err := api.runnerSvc.ListRunners(r.Context())
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-
-	liveStatuses := api.mux.GetRunnerStatuses()
-	statusMap := make(map[string]mux.RunnerStatus)
-	for _, s := range liveStatuses {
-		statusMap[s.Name] = s
-	}
-
-	// Combine DB state with Live state
-	type Combined struct {
-		sqlc.Runner
-		State         mux.RunnerState `json:"state"`
-		ActiveWorkers int             `json:"active_workers"`
-		Error         string          `json:"error,omitempty"`
-		HasPat        bool            `json:"has_pat"`
-	}
-
-	results := []Combined{}
-	for _, dbR := range runners {
-		hasPat := dbR.Pat != ""
-		dbR.Pat = ""
-		c := Combined{Runner: dbR, State: mux.StateOffline, HasPat: hasPat}
-		if s, ok := statusMap[dbR.Name]; ok {
-			c.State = s.State
-			c.ActiveWorkers = s.ActiveWorkers
-			c.Error = s.Error
-		}
-		results = append(results, c)
-	}
-
-	WriteJSON(w, http.StatusOK, results)
+	WriteJSON(w, http.StatusOK, runners)
 }
 
 func (api *API) createRunner(w http.ResponseWriter, r *http.Request) {
@@ -96,13 +62,12 @@ func (api *API) createRunner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Persist to DB first
 	labelsStr := ""
 	if payload.Mode == "standalone" && len(payload.Labels) > 0 {
 		labelsStr = strings.Join(payload.Labels, ",")
 	}
 
-	dbRunner, err := api.queries.CreateRunner(r.Context(), sqlc.CreateRunnerParams{
+	params := sqlc.CreateRunnerParams{
 		Name:         payload.Name,
 		Mode:         payload.Mode,
 		Url:          payload.URL,
@@ -112,18 +77,12 @@ func (api *API) createRunner(w http.ResponseWriter, r *http.Request) {
 		MaxRunners:   int64(payload.MaxRunners),
 		Labels:       labelsStr,
 		RunnerGroup:  payload.RunnerGroup,
-	})
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to save runner: %v", err))
-		return
 	}
 
-	// Prepare config for manager
-	cfg := config.RunnerConfigFromDB(dbRunner)
-
-	// For standalone mode, generate registration token using OAuth token
+	var regToken string
+	var err error
 	if payload.Mode == "standalone" {
-		regToken, err := api.generateRegToken(r, payload.URL)
+		regToken, err = api.generateRegToken(r, payload.URL)
 		if err != nil {
 			log.Printf("[API] Failed to generate registration token for %s: %v", payload.Name, err)
 			WriteJSON(w, http.StatusUnprocessableEntity, map[string]string{
@@ -132,77 +91,42 @@ func (api *API) createRunner(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		cfg.Token = regToken
 	}
 
-	// Attempt to start the runner. If it fails, keep the DB record so the user
-	// can edit and retry from the form, but return an error so the frontend
-	// stays on the form page instead of redirecting to Overview.
-	err = api.mux.AddRunner(context.Background(), cfg)
+	runner, err := api.runnerSvc.CreateRunner(r.Context(), params, regToken)
 	if err != nil {
-		log.Printf("[API] Failed to start runner %s: %v", payload.Name, err)
-		WriteJSON(w, http.StatusUnprocessableEntity, map[string]string{
-			"error":       fmt.Sprintf("failed to start runner: %v", err),
-			"runner_name": payload.Name,
-		})
+		log.Printf("[API] Failed to create runner %s: %v", payload.Name, err)
+		if runner != nil {
+			WriteJSON(w, http.StatusUnprocessableEntity, map[string]string{
+				"error":       fmt.Sprintf("failed to start runner: %v", err),
+				"runner_name": payload.Name,
+			})
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	dbRunner.Pat = ""
-	WriteJSON(w, http.StatusCreated, dbRunner)
+	WriteJSON(w, http.StatusCreated, runner)
 }
 
-// getRunner returns the full runner record combined with live mux status
-// (state, active_workers, error) for the detail/edit form.
 func (api *API) getRunner(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-
-	dbRunner, err := api.queries.GetRunnerByName(r.Context(), name)
+	
+	runner, err := api.runnerSvc.GetRunner(r.Context(), name)
 	if err != nil {
-		WriteError(w, http.StatusNotFound, "runner not found")
+		if errors.Is(err, mux.ErrRunnerNotFound) {
+			WriteError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	type Combined struct {
-		sqlc.Runner
-		State         mux.RunnerState `json:"state"`
-		ActiveWorkers int             `json:"active_workers"`
-		Error         string          `json:"error,omitempty"`
-		HasPat        bool            `json:"has_pat"`
-		CanManage     bool            `json:"can_manage"`
-		IsRegistered  bool            `json:"is_registered"`
-	}
-
-	hasPat := dbRunner.Pat != ""
-	dbRunner.Pat = ""
-	c := Combined{Runner: dbRunner, State: mux.StateOffline, HasPat: hasPat}
-
-	liveStatuses := api.mux.GetRunnerStatuses()
-	for _, s := range liveStatuses {
-		if s.Name == name {
-			c.State = s.State
-			c.ActiveWorkers = s.ActiveWorkers
-			c.Error = s.Error
-			break
-		}
-	}
-
-	// Compute can_manage: config-driven admin OR repo/org admin
-	c.CanManage = api.checkCanManage(r, dbRunner.Url)
-
-	// For standalone runners, check if already registered (has .credentials file).
-	// Scaleset runners don't use .credentials, so is_registered is always false.
-	if dbRunner.Mode == "standalone" && dbRunner.Dir != "" {
-		if _, err := os.Stat(filepath.Join(dbRunner.Dir, ".credentials")); err == nil {
-			c.IsRegistered = true
-		}
-	}
-
-	WriteJSON(w, http.StatusOK, c)
+	runner.CanManage = api.checkCanManage(r, runner.Url)
+	WriteJSON(w, http.StatusOK, runner)
 }
 
-// updateRunner updates an existing runner's config and retries registration.
-// Only allowed when the runner is in a failed/offline state (not registered).
 func (api *API) updateRunner(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
@@ -220,74 +144,32 @@ func (api *API) updateRunner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch existing runner
-	dbRunner, err := api.queries.GetRunnerByName(r.Context(), name)
+	// Fetch existing to check URL for permission check
+	existing, err := api.runnerSvc.GetRunner(r.Context(), name)
 	if err != nil {
-		WriteError(w, http.StatusNotFound, "runner not found")
+		if errors.Is(err, mux.ErrRunnerNotFound) {
+			WriteError(w, http.StatusNotFound, "runner not found")
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, "db error")
 		return
 	}
 
-	// Permission check: must be admin or have repo/org admin access
-	if !api.checkCanManage(r, dbRunner.Url) {
+	if !api.checkCanManage(r, existing.Url) {
 		WriteError(w, http.StatusForbidden, "you don't have admin access to manage this runner")
 		return
 	}
 
-	// Check if runner is currently running/registered — don't allow edit if live
-	liveStatuses := api.mux.GetRunnerStatuses()
-	for _, s := range liveStatuses {
-		if s.Name == name && (s.State == mux.StateOnline || s.State == mux.StateBusy || s.State == mux.StateRegistering || s.State == mux.StatePaused || s.State == mux.StateDraining) {
-			WriteError(w, http.StatusConflict, fmt.Sprintf("cannot edit runner %s while it is %s — remove and recreate instead", name, s.State))
-			return
-		}
+	input := UpdateRunnerInput{
+		PAT:          payload.PAT,
+		ScaleSetName: payload.ScaleSetName,
+		MaxRunners:   payload.MaxRunners,
+		Labels:       payload.Labels,
+		RunnerGroup:  payload.RunnerGroup,
 	}
 
-	// Check if standalone runner is already registered (has .credentials file).
-	alreadyRegistered := false
-	if dbRunner.Mode == "standalone" && dbRunner.Dir != "" {
-		if _, err := os.Stat(filepath.Join(dbRunner.Dir, ".credentials")); err == nil {
-			alreadyRegistered = true
-		}
-	}
-
-	var updatedRunner sqlc.Runner
-	if alreadyRegistered && payload.PAT == "" && payload.MaxRunners == 0 && payload.RunnerGroup == "" && payload.ScaleSetName == "" && len(payload.Labels) == 0 {
-		// No modifications and already registered — just retry with existing config
-		updatedRunner = dbRunner
-	} else {
-		// Build update params using COALESCE (only update non-empty fields)
-		// Note: URL is immutable after creation — not updatable.
-		updateParams := sqlc.UpdateRunnerParams{
-			ID: dbRunner.ID,
-		}
-		if payload.PAT != "" {
-			updateParams.Pat = sql.NullString{String: payload.PAT, Valid: true}
-		}
-		if payload.MaxRunners > 0 {
-			updateParams.MaxRunners = sql.NullInt64{Int64: int64(payload.MaxRunners), Valid: true}
-		}
-		if payload.RunnerGroup != "" {
-			updateParams.RunnerGroup = sql.NullString{String: payload.RunnerGroup, Valid: true}
-		}
-		if len(payload.Labels) > 0 {
-			updateParams.Labels = sql.NullString{String: strings.Join(payload.Labels, ","), Valid: true}
-		}
-
-		updatedRunner, err = api.queries.UpdateRunner(r.Context(), updateParams)
-		if err != nil {
-			WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update runner: %v", err))
-			return
-		}
-	}
-
-	// Build config for retry
-	cfg := config.RunnerConfigFromDB(updatedRunner)
-
-	// For standalone mode, only generate a registration token if the runner
-	// is not yet registered. If already registered (has .credentials), the
-	// listener will restart using existing credentials without needing a token.
-	if updatedRunner.Mode == "standalone" && !alreadyRegistered {
-		regToken, err := api.generateRegToken(r, updatedRunner.Url)
+	if existing.Mode == "standalone" && !existing.IsRegistered {
+		regToken, err := api.generateRegToken(r, existing.Url)
 		if err != nil {
 			log.Printf("[API] Failed to generate registration token for %s: %v", name, err)
 			WriteJSON(w, http.StatusUnprocessableEntity, map[string]string{
@@ -296,13 +178,16 @@ func (api *API) updateRunner(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		cfg.Token = regToken
+		input.RegToken = regToken
 	}
 
-	// Retry registration
-	err = api.mux.AddRunner(context.Background(), cfg)
+	runner, err := api.runnerSvc.UpdateRunner(r.Context(), name, input)
 	if err != nil {
-		log.Printf("[API] Failed to retry runner %s: %v", name, err)
+		if strings.Contains(err.Error(), "cannot edit runner") {
+			WriteError(w, http.StatusConflict, err.Error())
+			return
+		}
+		log.Printf("[API] Failed to update runner %s: %v", name, err)
 		WriteJSON(w, http.StatusUnprocessableEntity, map[string]string{
 			"error":       fmt.Sprintf("failed to start runner: %v", err),
 			"runner_name": name,
@@ -310,81 +195,45 @@ func (api *API) updateRunner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updatedRunner.Pat = ""
-	WriteJSON(w, http.StatusOK, updatedRunner)
+	WriteJSON(w, http.StatusOK, runner)
 }
 
 func (api *API) deleteRunner(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	force := r.URL.Query().Get("force") == "true"
-	token := r.URL.Query().Get("token")
 
-	dbRunner, err := api.queries.GetRunnerByName(r.Context(), name)
+	existing, err := api.runnerSvc.GetRunner(r.Context(), name)
 	if err != nil {
-		WriteError(w, http.StatusNotFound, "runner not found")
+		if errors.Is(err, mux.ErrRunnerNotFound) {
+			WriteError(w, http.StatusNotFound, "runner not found")
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, "db error")
 		return
 	}
 
-	// Permission check: must be admin or have repo/org admin access
-	if !api.checkCanManage(r, dbRunner.Url) {
+	if !api.checkCanManage(r, existing.Url) {
 		WriteError(w, http.StatusForbidden, "you don't have admin access to manage this runner")
 		return
 	}
 
-	// Tell mux to stop it
-	err = api.mux.RemoveRunner(context.Background(), name, force, dbRunner.Mode)
-	if err != nil {
-		log.Printf("[API] Warning: mux failed to stop runner: %v", err)
-	}
-
-	// Delete from DB
-	err = api.queries.DeleteRunnerByName(r.Context(), name)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "failed to delete from db")
-		return
-	}
-
-	// Extract the OAuth token before starting the goroutine, because the
-	// HTTP request context will be canceled once the handler returns.
-	var oauthToken string
-	if dbRunner.Mode == "standalone" {
-		repoInfo, err := github.ParseRepoURL(dbRunner.Url)
+	var deregToken string
+	if existing.Mode == "standalone" {
+		repoInfo, err := github.ParseRepoURL(existing.Url)
 		if err == nil {
-			oauthToken, _ = api.getOAuthTokenForHost(r, repoInfo.Host)
-		}
-	}
-
-	// Deregister from GitHub and clean up in the background.
-	// For standalone: runs config.sh remove --token, then removes the directory (Deregister handles both).
-	// For scaleset: deletes the scale set from GitHub via the API.
-	go func(rName, rMode, rToken, rOAuthToken string) {
-		// Small delay to let draining finish if not forced
-		time.Sleep(2 * time.Second)
-		_ = api.mux.RemoveRunner(context.Background(), rName, true, rMode) // Ensure killed
-
-		// Build config from DB record for deregistration.
-		deregCfg := config.RunnerConfigFromDB(dbRunner)
-
-		// For standalone mode, generate a fresh registration token for deregistration
-		// using the OAuth token extracted before the request completed.
-		if dbRunner.Mode == "standalone" && rOAuthToken != "" {
-			repoInfo, err := github.ParseRepoURL(dbRunner.Url)
-			if err != nil {
-				log.Printf("[API] Warning: failed to parse URL for deregistration of %s: %v", rName, err)
-			} else {
-				regToken, err := github.GetRegistrationToken(context.Background(), repoInfo.Host, repoInfo.Owner, repoInfo.Repo, rOAuthToken)
-				if err != nil {
-					log.Printf("[API] Warning: failed to generate registration token for deregistration of %s: %v", rName, err)
-				} else {
-					deregCfg.Token = regToken
-				}
+			oauthToken, _ := api.getOAuthTokenForHost(r, repoInfo.Host)
+			if oauthToken != "" {
+				regToken, _ := github.GetRegistrationToken(r.Context(), repoInfo.Host, repoInfo.Owner, repoInfo.Repo, oauthToken)
+				deregToken = regToken
 			}
 		}
+	}
 
-		if err := api.mux.Deregister(deregCfg); err != nil {
-			log.Printf("[API] Warning: failed to deregister runner %s from GitHub: %v", rName, err)
-		}
-	}(name, dbRunner.Mode, token, oauthToken)
+	err = api.runnerSvc.DeleteRunner(r.Context(), name, force, deregToken)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
@@ -425,3 +274,4 @@ func (api *API) checkCanManage(r *http.Request, runnerURL string) bool {
 	}
 	return canManage
 }
+
