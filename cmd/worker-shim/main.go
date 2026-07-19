@@ -91,7 +91,8 @@ func main() {
 	}
 
 	workerIP := allocResponse.WorkerIP
-	log.Printf("[Worker Shim] Worker allocated at IP: %s (config files: %d)", workerIP, len(allocResponse.ConfigFiles))
+	configFiles := readRunnerConfigFiles(runnerDir)
+	log.Printf("[Worker Shim] Worker allocated at IP: %s (config files: %d)", workerIP, len(configFiles))
 
 	// 2. Connect to Worker TCP Stream
 	conn, err := net.Dial("tcp", fmt.Sprintf("%s:9000", workerIP))
@@ -103,7 +104,7 @@ func main() {
 	// 2a. Send framed header so the worker-launcher receives the runner's config
 	// files. The header is a 4-byte big-endian length prefix followed by JSON.
 	// After the header, the connection becomes a raw bidirectional byte pipe.
-	if err := writeFramedHeader(conn, workerHeader{ConfigFiles: allocResponse.ConfigFiles}); err != nil {
+	if err := writeFramedHeader(conn, workerHeader{ConfigFiles: configFiles}); err != nil {
 		log.Fatalf("[Worker Shim] Failed to send config files header: %v", err)
 	}
 

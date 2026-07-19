@@ -136,6 +136,5 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 
 	json.NewEncoder(w).Encode(api.AllocateResponse{
 		WorkerIP:    ww.IPAddress,
-		ConfigFiles: o.readRunnerConfigFiles(string(payload.RunnerName), payload.RunnerDir),
 	})
 }

@@ -18,7 +18,6 @@ type AllocateRequest struct {
 // would expose all runners' credentials — a security violation).
 type AllocateResponse struct {
 	WorkerIP    string            `json:"worker_ip"`
-	ConfigFiles map[string]string `json:"config_files,omitempty"`
 }
 
 // WaitResponse is the response from the worker-launcher's /wait endpoint
