@@ -49,6 +49,28 @@ func InitializeEnvironment(cfg *config.RunnerConfig) error {
 		if err := cpCmd.Run(); err != nil {
 			return fmt.Errorf("failed to copy runner template to %s: %w", cfg.Dir, err)
 		}
+	} else {
+		log.Printf("[%s] Runner template found. Syncing binaries from /actions-runner for upgrade...", cfg.Name)
+		
+		// Sync bin/ directory, deleting any stale files
+		syncCmd := exec.Command("rsync", "-a", "--delete", "/actions-runner/bin/", filepath.Join(cfg.Dir, "bin/"))
+		if err := syncCmd.Run(); err != nil {
+			return fmt.Errorf("failed to sync bin directory to %s: %w", cfg.Dir, err)
+		}
+		
+		// Sync externals/ directory, deleting any stale files
+		syncCmd = exec.Command("rsync", "-a", "--delete", "/actions-runner/externals/", filepath.Join(cfg.Dir, "externals/"))
+		if err := syncCmd.Run(); err != nil {
+			return fmt.Errorf("failed to sync externals directory to %s: %w", cfg.Dir, err)
+		}
+
+		// Copy top-level scripts safely without overwriting the root directory
+		for _, file := range []string{"config.sh", "run.sh", "env.sh", "run-helper.sh"} {
+			src := filepath.Join("/actions-runner", file)
+			if _, err := os.Stat(src); err == nil {
+				_ = exec.Command("cp", "-a", src, filepath.Join(cfg.Dir, file)).Run()
+			}
+		}
 	}
 
 	// ── Always (re)inject the worker-shim ──────────────────────────────────
