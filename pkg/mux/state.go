@@ -1,6 +1,9 @@
 package mux
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 type RunnerState string
 
@@ -32,10 +35,8 @@ func ValidateTransition(from, to RunnerState) error {
 	if !ok {
 		return fmt.Errorf("%w: unknown state %q", ErrInvalidTransition, from)
 	}
-	for _, s := range allowed {
-		if s == to {
-			return nil
-		}
+	if slices.Contains(allowed, to) {
+		return nil
 	}
 	return fmt.Errorf("%w: %s → %s", ErrInvalidTransition, from, to)
 }
