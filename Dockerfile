@@ -62,7 +62,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ── Copy Runner & Dependencies ────────────────────────────────────────────────
 COPY --from=builder /actions-runner /actions-runner
 WORKDIR /actions-runner
-RUN ./bin/installdependencies.sh && mkdir -p /_work
+RUN ./bin/installdependencies.sh
 
 # ── Copy proxy and shim ─────────────────────────────────────────────────
 COPY --from=builder /app/proxy /usr/local/bin/proxy
