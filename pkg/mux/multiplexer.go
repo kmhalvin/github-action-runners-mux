@@ -36,7 +36,6 @@ type Multiplexer struct {
 	queries    *sqlc.Queries
 	standalone Runner
 	scaleset   Runner
-
 }
 
 func NewMultiplexer(db *sql.DB, queries *sqlc.Queries, standalone Runner, scaleset Runner) *Multiplexer {

@@ -35,8 +35,6 @@ type BaseManager struct {
 	Hooks     ManagerHooks
 	Processes map[string]*ProcessState
 	Mu        sync.RWMutex
-	// OnStateChange is called after every validated state transition.
-	OnStateChange func(name string, from, to RunnerState)
 }
 
 func NewBaseManager(hooks ManagerHooks) *BaseManager {
@@ -66,9 +64,6 @@ func (b *BaseManager) transitionLocked(name string, to RunnerState) error {
 		return err
 	}
 	proc.State = to
-	if b.OnStateChange != nil {
-		b.OnStateChange(name, from, to)
-	}
 	return nil
 }
 
