@@ -17,7 +17,12 @@ type AllocateRequest struct {
 // container can run Runner.Worker without mounting the shared volume (which
 // would expose all runners' credentials — a security violation).
 type AllocateResponse struct {
-	WorkerIP    string            `json:"worker_ip"`
+	WorkerIP    string `json:"worker_ip"`
+	ContainerID string `json:"container_id"`
+}
+
+type KillRequest struct {
+	ContainerID string `json:"container_id"`
 }
 
 // WaitResponse is the response from the worker-launcher's /wait endpoint

@@ -77,13 +77,14 @@ func (s *Scaler) startWorker(ctx context.Context) {
 	resp, err := client.Post(fmt.Sprintf("http://%s:9001/start", ww.IPAddress), "application/json", bytes.NewBuffer(reqPayload))
 	if err != nil {
 		log.Printf("[%s] Failed to send JIT config to container %s: %v", s.runnerName, ww.ContainerID[:12], err)
-		// We'd ideally want to handle container death, but Orch will eventually reap it if it fails to start properly.
+		s.orch.KillWorker(ww.ContainerID)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("[%s] Container %s rejected JIT config (status %d)", s.runnerName, ww.ContainerID[:12], resp.StatusCode)
+		s.orch.KillWorker(ww.ContainerID)
 		return
 	}
 

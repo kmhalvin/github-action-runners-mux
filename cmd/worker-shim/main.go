@@ -96,6 +96,7 @@ func main() {
 	// 2. Connect to Worker TCP Stream
 	conn, err := net.Dial("tcp", fmt.Sprintf("%s:9000", workerIP))
 	if err != nil {
+		killWorker(&client, allocResponse.ContainerID)
 		log.Fatalf("[Worker Shim] Failed to connect to worker pipe stream: %v", err)
 	}
 	defer conn.Close()
@@ -104,6 +105,7 @@ func main() {
 	// files. The header is a 4-byte big-endian length prefix followed by JSON.
 	// After the header, the connection becomes a raw bidirectional byte pipe.
 	if err := writeFramedHeader(conn, workerHeader{ConfigFiles: configFiles}); err != nil {
+		killWorker(&client, allocResponse.ContainerID)
 		log.Fatalf("[Worker Shim] Failed to send config files header: %v", err)
 	}
 
@@ -196,4 +198,12 @@ func writeFramedHeader(conn net.Conn, header workerHeader) error {
 		return fmt.Errorf("write payload: %w", err)
 	}
 	return nil
+}
+
+func killWorker(client *http.Client, containerID string) {
+	reqBody, _ := json.Marshal(api.KillRequest{ContainerID: containerID})
+	resp, err := client.Post("http://unix/api/v1/worker/kill", "application/json", bytes.NewBuffer(reqBody))
+	if err == nil {
+		resp.Body.Close()
+	}
 }

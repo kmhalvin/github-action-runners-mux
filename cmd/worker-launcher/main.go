@@ -12,7 +12,6 @@ import (
 type WorkerLauncher struct {
 	exitCode    int
 	finished    bool
-	started     bool
 	mutex       sync.Mutex
 	cond        *sync.Cond
 	waitFetched chan struct{}

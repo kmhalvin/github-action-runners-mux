@@ -2,12 +2,8 @@ package orchestrator
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
-
-	"github.com/kmhalvin/github-action-runners-mux/api"
 )
 
 func (o *Orchestrator) GetActiveCount(runnerName string) int {
@@ -57,7 +53,7 @@ func (o *Orchestrator) AllocateWorker(ctx context.Context, runnerName string) (*
 			o.mutex.Lock()
 			o.bootingCount--
 
-		if err != nil {
+			if err != nil {
 				o.broadcast()
 				o.mutex.Unlock()
 				return nil, fmt.Errorf("failed to create worker container: %w", err)
@@ -107,31 +103,4 @@ func (o *Orchestrator) AllocateWorker(ctx context.Context, runnerName string) (*
 
 		o.mutex.Lock()
 	}
-}
-
-// HandleAllocate handles standalone container allocation requests via the proxy socket.
-func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var payload api.AllocateRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Invalid payload", http.StatusBadRequest)
-		return
-	}
-
-	ww, err := o.AllocateWorker(r.Context(), string(payload.RunnerName))
-	if err != nil {
-		log.Printf("[Orchestrator] Allocation failed: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	o.evaluateCapacity()
-
-	json.NewEncoder(w).Encode(api.AllocateResponse{
-		WorkerIP:    ww.IPAddress,
-	})
 }

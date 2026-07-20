@@ -113,6 +113,7 @@ func (a *App) Start(ctx context.Context) error {
 	go func() {
 		muxServer := http.NewServeMux()
 		muxServer.HandleFunc("/api/v1/worker/allocate", a.orchestrator.HandleAllocate)
+		muxServer.HandleFunc("/api/v1/worker/kill", a.orchestrator.HandleKillWorker)
 		log.Printf("[Orchestrator] Listening on unix socket %s for Standalone Shim allocations...", api.SockPath)
 		if err := http.Serve(listener, muxServer); err != nil && err != http.ErrServerClosed {
 			log.Printf("Fatal: orchestrator server failed: %v", err)
