@@ -25,6 +25,14 @@ type WaitResponse struct {
 	ExitCode int `json:"exit_code"`
 }
 
+// MuxMeta holds metadata for a runner directory. The registration token is no
+// longer stored here because it expires after 1 hour. Deregistration requires
+// a fresh token provided by the user at deletion time.
+type MuxMeta struct {
+	RunnerName string `json:"runner_name,omitempty"`
+	URL        string `json:"url"`
+}
+
 // StartRequest is the payload sent from the Orchestrator to the worker-launcher's /start endpoint
 type StartRequest struct {
 	JITConfig string `json:"jitConfig"`

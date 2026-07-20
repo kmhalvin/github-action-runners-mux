@@ -21,9 +21,9 @@ INSERT INTO runners (
 type CreateRunnerParams struct {
 	Name         string `json:"name"`
 	Mode         string `json:"mode"`
-	Url          string `json:"url"`
+	URL          string `json:"url"`
 	Dir          string `json:"dir"`
-	Pat          string `json:"pat"`
+	PAT          string `json:"pat"`
 	ScaleSetName string `json:"scale_set_name"`
 	MaxRunners   int64  `json:"max_runners"`
 	Labels       string `json:"labels"`
@@ -34,9 +34,9 @@ func (q *Queries) CreateRunner(ctx context.Context, arg CreateRunnerParams) (Run
 	row := q.db.QueryRowContext(ctx, createRunner,
 		arg.Name,
 		arg.Mode,
-		arg.Url,
+		arg.URL,
 		arg.Dir,
-		arg.Pat,
+		arg.PAT,
 		arg.ScaleSetName,
 		arg.MaxRunners,
 		arg.Labels,
@@ -47,9 +47,9 @@ func (q *Queries) CreateRunner(ctx context.Context, arg CreateRunnerParams) (Run
 		&i.ID,
 		&i.Name,
 		&i.Mode,
-		&i.Url,
+		&i.URL,
 		&i.Dir,
-		&i.Pat,
+		&i.PAT,
 		&i.ScaleSetName,
 		&i.MaxRunners,
 		&i.Labels,
@@ -89,9 +89,9 @@ func (q *Queries) GetRunner(ctx context.Context, id int64) (Runner, error) {
 		&i.ID,
 		&i.Name,
 		&i.Mode,
-		&i.Url,
+		&i.URL,
 		&i.Dir,
-		&i.Pat,
+		&i.PAT,
 		&i.ScaleSetName,
 		&i.MaxRunners,
 		&i.Labels,
@@ -113,9 +113,9 @@ func (q *Queries) GetRunnerByName(ctx context.Context, name string) (Runner, err
 		&i.ID,
 		&i.Name,
 		&i.Mode,
-		&i.Url,
+		&i.URL,
 		&i.Dir,
-		&i.Pat,
+		&i.PAT,
 		&i.ScaleSetName,
 		&i.MaxRunners,
 		&i.Labels,
@@ -131,20 +131,20 @@ SELECT id, name, mode, url, dir, pat, scale_set_name, max_runners, labels, runne
 `
 
 type GetRunnerByURLModeParams struct {
-	Url  string `json:"url"`
+	URL  string `json:"url"`
 	Mode string `json:"mode"`
 }
 
 func (q *Queries) GetRunnerByURLMode(ctx context.Context, arg GetRunnerByURLModeParams) (Runner, error) {
-	row := q.db.QueryRowContext(ctx, getRunnerByURLMode, arg.Url, arg.Mode)
+	row := q.db.QueryRowContext(ctx, getRunnerByURLMode, arg.URL, arg.Mode)
 	var i Runner
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
 		&i.Mode,
-		&i.Url,
+		&i.URL,
 		&i.Dir,
-		&i.Pat,
+		&i.PAT,
 		&i.ScaleSetName,
 		&i.MaxRunners,
 		&i.Labels,
@@ -181,9 +181,9 @@ func (q *Queries) ListRunners(ctx context.Context) ([]Runner, error) {
 			&i.ID,
 			&i.Name,
 			&i.Mode,
-			&i.Url,
+			&i.URL,
 			&i.Dir,
-			&i.Pat,
+			&i.PAT,
 			&i.ScaleSetName,
 			&i.MaxRunners,
 			&i.Labels,
@@ -216,7 +216,7 @@ RETURNING id, name, mode, url, dir, pat, scale_set_name, max_runners, labels, ru
 `
 
 type UpdateRunnerParams struct {
-	Pat         sql.NullString `json:"pat"`
+	PAT         sql.NullString `json:"pat"`
 	MaxRunners  sql.NullInt64  `json:"max_runners"`
 	Labels      sql.NullString `json:"labels"`
 	RunnerGroup sql.NullString `json:"runner_group"`
@@ -225,7 +225,7 @@ type UpdateRunnerParams struct {
 
 func (q *Queries) UpdateRunner(ctx context.Context, arg UpdateRunnerParams) (Runner, error) {
 	row := q.db.QueryRowContext(ctx, updateRunner,
-		arg.Pat,
+		arg.PAT,
 		arg.MaxRunners,
 		arg.Labels,
 		arg.RunnerGroup,
@@ -236,9 +236,9 @@ func (q *Queries) UpdateRunner(ctx context.Context, arg UpdateRunnerParams) (Run
 		&i.ID,
 		&i.Name,
 		&i.Mode,
-		&i.Url,
+		&i.URL,
 		&i.Dir,
-		&i.Pat,
+		&i.PAT,
 		&i.ScaleSetName,
 		&i.MaxRunners,
 		&i.Labels,

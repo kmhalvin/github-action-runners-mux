@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/kmhalvin/github-action-runners-mux/config"
 	"github.com/kmhalvin/github-action-runners-mux/db/sqlc"
 )
 
@@ -21,9 +20,9 @@ type RunnerStatus struct {
 
 // Runner is the interface implemented by both Standalone and ScaleSet managers
 type Runner interface {
-	Start(ctx context.Context, cfg config.RunnerConfig) error
+	Start(ctx context.Context, cfg sqlc.Runner, token string) error
 	Stop(name string, force bool) error
-	Deregister(cfg config.RunnerConfig) error
+	Deregister(cfg sqlc.Runner, token string) error
 	GetStatus(name string) (RunnerStatus, error)
 	ListRunners() []RunnerStatus
 	MarkBusy(name string)
@@ -48,13 +47,13 @@ func NewMultiplexer(db *sql.DB, queries *sqlc.Queries, standalone Runner, scales
 }
 
 // AddRunner dynamically adds and starts a runner
-func (m *Multiplexer) AddRunner(ctx context.Context, cfg config.RunnerConfig) error {
+func (m *Multiplexer) AddRunner(ctx context.Context, cfg sqlc.Runner, token string) error {
 	var err error
 	switch cfg.Mode {
 	case "standalone", "":
-		err = m.standalone.Start(ctx, cfg)
+		err = m.standalone.Start(ctx, cfg, token)
 	case "scaleset":
-		err = m.scaleset.Start(ctx, cfg)
+		err = m.scaleset.Start(ctx, cfg, token)
 	default:
 		return fmt.Errorf("unknown runner mode: %s", cfg.Mode)
 	}
@@ -80,12 +79,12 @@ func (m *Multiplexer) RemoveRunner(ctx context.Context, name string, force bool,
 
 // Deregister removes the runner from GitHub (config.sh remove for standalone,
 // DeleteRunnerScaleSet for scaleset) without stopping the local process.
-func (m *Multiplexer) Deregister(cfg config.RunnerConfig) error {
+func (m *Multiplexer) Deregister(cfg sqlc.Runner, token string) error {
 	switch cfg.Mode {
 	case "standalone", "":
-		return m.standalone.Deregister(cfg)
+		return m.standalone.Deregister(cfg, token)
 	case "scaleset":
-		return m.scaleset.Deregister(cfg)
+		return m.scaleset.Deregister(cfg, token)
 	}
 	return fmt.Errorf("unknown runner mode: %s", cfg.Mode)
 }

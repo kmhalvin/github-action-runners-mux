@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/actions/scaleset"
-	"github.com/kmhalvin/github-action-runners-mux/config"
 	"github.com/kmhalvin/github-action-runners-mux/db/sqlc"
 	"github.com/kmhalvin/github-action-runners-mux/orchestrator"
 	"github.com/kmhalvin/github-action-runners-mux/pkg/mux"
@@ -36,7 +35,7 @@ func NewScaleSetManager(orch *orchestrator.Orchestrator, db *sql.DB, queries *sq
 }
 
 // Launch implements mux.ManagerHooks
-func (m *ScaleSetManager) Launch(ctx context.Context, cfg *config.RunnerConfig) error {
+func (m *ScaleSetManager) Launch(ctx context.Context, cfg *sqlc.Runner, token string) error {
 	// Get global max workers for fallback
 	maxWorkers := 5
 	val, err := m.queries.GetSetting(ctx, "max_workers")
@@ -109,7 +108,7 @@ func (m *ScaleSetManager) Halt(name string, force bool) error {
 }
 
 // Cleanup implements mux.ManagerHooks
-func (m *ScaleSetManager) Cleanup(cfg config.RunnerConfig) error {
+func (m *ScaleSetManager) Cleanup(cfg sqlc.Runner, token string) error {
 	ctx := context.Background()
 
 	client, err := scaleset.NewClientWithPersonalAccessToken(scaleset.NewClientWithPersonalAccessTokenConfig{
@@ -120,7 +119,7 @@ func (m *ScaleSetManager) Cleanup(cfg config.RunnerConfig) error {
 		return fmt.Errorf("failed to create scaleset client: %w", err)
 	}
 
-	runnerGroup := cfg.Group
+	runnerGroup := cfg.RunnerGroup
 	if runnerGroup == "" {
 		runnerGroup = scaleset.DefaultRunnerGroup
 	}

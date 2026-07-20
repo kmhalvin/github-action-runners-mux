@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kmhalvin/github-action-runners-mux/config"
 	"github.com/kmhalvin/github-action-runners-mux/db/sqlc"
 	"github.com/kmhalvin/github-action-runners-mux/pkg/mux"
 )
@@ -62,8 +61,8 @@ func (s *RunnerService) ListRunners(ctx context.Context) ([]CombinedRunner, erro
 			}
 		}
 
-		hasPat := dbR.Pat != ""
-		dbR.Pat = ""
+		hasPat := dbR.PAT != ""
+		dbR.PAT = ""
 		
 		results = append(results, CombinedRunner{
 			Runner:        dbR,
@@ -101,8 +100,8 @@ func (s *RunnerService) GetRunner(ctx context.Context, name string) (*CombinedRu
 		}
 	}
 
-	hasPat := dbRunner.Pat != ""
-	dbRunner.Pat = ""
+	hasPat := dbRunner.PAT != ""
+	dbRunner.PAT = ""
 
 	return &CombinedRunner{
 		Runner:        dbRunner,
@@ -120,17 +119,12 @@ func (s *RunnerService) CreateRunner(ctx context.Context, params sqlc.CreateRunn
 		return nil, fmt.Errorf("failed to save runner: %w", err)
 	}
 
-	cfg := config.RunnerConfigFromDB(dbRunner)
-	if params.Mode == "standalone" {
-		cfg.Token = regToken
-	}
-
-	err = s.mux.AddRunner(context.Background(), cfg)
+	err = s.mux.AddRunner(context.Background(), dbRunner, regToken)
 	if err != nil {
 		return &dbRunner, fmt.Errorf("failed to start runner: %w", err)
 	}
 
-	dbRunner.Pat = ""
+	dbRunner.PAT = ""
 	return &dbRunner, nil
 }
 
@@ -174,7 +168,7 @@ func (s *RunnerService) UpdateRunner(ctx context.Context, name string, input Upd
 			ID: dbRunner.ID,
 		}
 		if input.PAT != "" {
-			updateParams.Pat = sql.NullString{String: input.PAT, Valid: true}
+			updateParams.PAT = sql.NullString{String: input.PAT, Valid: true}
 		}
 		if input.MaxRunners > 0 {
 			updateParams.MaxRunners = sql.NullInt64{Int64: int64(input.MaxRunners), Valid: true}
@@ -192,17 +186,12 @@ func (s *RunnerService) UpdateRunner(ctx context.Context, name string, input Upd
 		}
 	}
 
-	cfg := config.RunnerConfigFromDB(updatedRunner)
-	if updatedRunner.Mode == "standalone" && !alreadyRegistered {
-		cfg.Token = input.RegToken
-	}
-
-	err = s.mux.AddRunner(context.Background(), cfg)
+	err = s.mux.AddRunner(context.Background(), updatedRunner, input.RegToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start runner: %w", err)
 	}
 
-	updatedRunner.Pat = ""
+	updatedRunner.PAT = ""
 	return &updatedRunner, nil
 }
 
@@ -228,12 +217,7 @@ func (s *RunnerService) DeleteRunner(ctx context.Context, name string, force boo
 		time.Sleep(2 * time.Second)
 		_ = s.mux.RemoveRunner(context.Background(), rName, true, rMode)
 
-		deregCfg := config.RunnerConfigFromDB(runner)
-		if runner.Mode == "standalone" && token != "" {
-			deregCfg.Token = token
-		}
-
-		_ = s.mux.Deregister(deregCfg)
+		_ = s.mux.Deregister(runner, token)
 	}(name, dbRunner.Mode, deregToken, dbRunner)
 
 	return nil

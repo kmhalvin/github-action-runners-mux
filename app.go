@@ -156,9 +156,7 @@ func (a *App) Start(ctx context.Context) error {
 			time.Sleep(startupDelay)
 		}
 
-		cfg := config.RunnerConfigFromDB(r)
-
-		if err := a.mux.AddRunner(context.Background(), cfg); err != nil {
+		if err := a.mux.AddRunner(context.Background(), r, ""); err != nil {
 			log.Printf("Warning: failed to start runner %s: %v", r.Name, err)
 		}
 

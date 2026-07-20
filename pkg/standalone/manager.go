@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kmhalvin/github-action-runners-mux/config"
+	"github.com/kmhalvin/github-action-runners-mux/db/sqlc"
 	"github.com/kmhalvin/github-action-runners-mux/pkg/mux"
 )
 
@@ -35,9 +35,9 @@ func NewManager() *StandaloneManager {
 }
 
 // Launch implements mux.ManagerHooks
-func (m *StandaloneManager) Launch(ctx context.Context, cfg *config.RunnerConfig) error {
+func (m *StandaloneManager) Launch(ctx context.Context, cfg *sqlc.Runner, token string) error {
 	// Initialize environment (registration, etc.)
-	if err := InitializeEnvironment(cfg); err != nil {
+	if err := InitializeEnvironment(cfg, token); err != nil {
 		return err
 	}
 
@@ -103,7 +103,7 @@ func (m *StandaloneManager) Halt(name string, force bool) error {
 }
 
 // Cleanup implements mux.ManagerHooks
-func (m *StandaloneManager) Cleanup(cfg config.RunnerConfig) error {
+func (m *StandaloneManager) Cleanup(cfg sqlc.Runner, token string) error {
 	credsFile := filepath.Join(cfg.Dir, ".credentials")
 	if _, err := os.Stat(credsFile); os.IsNotExist(err) {
 		log.Printf("[%s] No .credentials found — runner was never registered, skipping deregistration", cfg.Name)
@@ -117,11 +117,15 @@ func (m *StandaloneManager) Cleanup(cfg config.RunnerConfig) error {
 		return nil
 	}
 
-	if cfg.Token == "" {
+	if token == "" {
 		log.Printf("[%s] cannot deregister: no token available", cfg.Name)
 	} else {
 		log.Printf("[%s] Deregistering runner from GitHub via config.sh remove...", cfg.Name)
-		cmd := exec.Command("./config.sh", "remove", "--token", cfg.Token)
+		args := []string{"remove"}
+		if token != "" {
+			args = append(args, "--token", token)
+		}
+		cmd := exec.Command("./config.sh", args...)
 		cmd.Dir = cfg.Dir
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

@@ -7,9 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
-	"github.com/kmhalvin/github-action-runners-mux/config"
+
+	"github.com/kmhalvin/github-action-runners-mux/api"
+	"github.com/kmhalvin/github-action-runners-mux/db/sqlc"
 )
 
 
@@ -17,14 +18,14 @@ import (
 // On every startup it re-injects the worker-shim so that the shim binary always
 // matches the current proxy image (important when the image is updated — existing
 // runners on the runner-data volume would otherwise keep the old shim).
-func InitializeEnvironment(cfg *config.RunnerConfig) error {
+func InitializeEnvironment(cfg *sqlc.Runner, token string) error {
 	// Ensure the directory exists
 	if err := os.MkdirAll(cfg.Dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", cfg.Dir, err)
 	}
 
 	// Always save/update the meta file (especially important for upgrading older registered runners)
-	meta := config.MuxMeta{
+	meta := api.MuxMeta{
 		RunnerName: cfg.Name,
 		URL:        cfg.URL,
 	}
@@ -99,13 +100,13 @@ func InitializeEnvironment(cfg *config.RunnerConfig) error {
 
 	log.Printf("[%s] Runner not registered. Executing config.sh...", cfg.Name)
 
-	if cfg.Token == "" {
+	if token == "" {
 		return fmt.Errorf("[%s] runner is not registered and no token was provided in config", cfg.Name)
 	}
 
 	args := []string{
 		"--url", cfg.URL,
-		"--token", cfg.Token,
+		"--token", token,
 		"--name", string(cfg.Name),
 		"--work", "_work",
 		"--unattended",
@@ -114,11 +115,11 @@ func InitializeEnvironment(cfg *config.RunnerConfig) error {
 	}
 
 	if len(cfg.Labels) > 0 {
-		args = append(args, "--labels", strings.Join(cfg.Labels, ","))
+		args = append(args, "--labels", cfg.Labels)
 	}
 
-	if cfg.Group != "" {
-		args = append(args, "--runnergroup", cfg.Group)
+	if cfg.RunnerGroup != "" {
+		args = append(args, "--runnergroup", cfg.RunnerGroup)
 	}
 
 	cmd := exec.Command("./config.sh", args...)

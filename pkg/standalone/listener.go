@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kmhalvin/github-action-runners-mux/config"
+	"github.com/kmhalvin/github-action-runners-mux/db/sqlc"
 	"github.com/kmhalvin/github-action-runners-mux/pkg/mux"
 )
 
@@ -25,7 +25,7 @@ const (
 
 // launchListener starts a new Runner.Listener process, wires up log streaming,
 // and updates listenerData with the new Cmd/PGID and state to Online. Returns the started command.
-func (m *StandaloneManager) launchListener(cfg *config.RunnerConfig) (*exec.Cmd, error) {
+func (m *StandaloneManager) launchListener(cfg *sqlc.Runner) (*exec.Cmd, error) {
 	cmd := exec.Command("./bin/Runner.Listener", "run", "--startuptype", "service")
 	cmd.Dir = cfg.Dir
 
@@ -82,7 +82,7 @@ func (m *StandaloneManager) launchListener(cfg *config.RunnerConfig) (*exec.Cmd,
 	return cmd, nil
 }
 
-func (m *StandaloneManager) startRunner(cfg *config.RunnerConfig) error {
+func (m *StandaloneManager) startRunner(cfg *sqlc.Runner) error {
 	log.Printf("[%s] Starting Listener via Go command...", cfg.Name)
 
 	cmd, err := m.launchListener(cfg)

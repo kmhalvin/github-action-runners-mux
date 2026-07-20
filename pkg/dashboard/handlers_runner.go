@@ -70,9 +70,9 @@ func (api *API) createRunner(w http.ResponseWriter, r *http.Request) {
 	params := sqlc.CreateRunnerParams{
 		Name:         payload.Name,
 		Mode:         payload.Mode,
-		Url:          payload.URL,
+		URL:          payload.URL,
 		Dir:          payload.Dir,
-		Pat:          payload.PAT,
+		PAT:          payload.PAT,
 		ScaleSetName: payload.ScaleSetName,
 		MaxRunners:   int64(payload.MaxRunners),
 		Labels:       labelsStr,
@@ -123,7 +123,7 @@ func (api *API) getRunner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runner.CanManage = api.checkCanManage(r, runner.Url)
+	runner.CanManage = api.checkCanManage(r, runner.URL)
 	WriteJSON(w, http.StatusOK, runner)
 }
 
@@ -155,7 +155,7 @@ func (api *API) updateRunner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !api.checkCanManage(r, existing.Url) {
+	if !api.checkCanManage(r, existing.URL) {
 		WriteError(w, http.StatusForbidden, "you don't have admin access to manage this runner")
 		return
 	}
@@ -169,7 +169,7 @@ func (api *API) updateRunner(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if existing.Mode == "standalone" && !existing.IsRegistered {
-		regToken, err := api.generateRegToken(r, existing.Url)
+		regToken, err := api.generateRegToken(r, existing.URL)
 		if err != nil {
 			log.Printf("[API] Failed to generate registration token for %s: %v", name, err)
 			WriteJSON(w, http.StatusUnprocessableEntity, map[string]string{
@@ -212,14 +212,14 @@ func (api *API) deleteRunner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !api.checkCanManage(r, existing.Url) {
+	if !api.checkCanManage(r, existing.URL) {
 		WriteError(w, http.StatusForbidden, "you don't have admin access to manage this runner")
 		return
 	}
 
 	var deregToken string
 	if existing.Mode == "standalone" {
-		repoInfo, err := github.ParseRepoURL(existing.Url)
+		repoInfo, err := github.ParseRepoURL(existing.URL)
 		if err == nil {
 			oauthToken, _ := api.getOAuthTokenForHost(r, repoInfo.Host)
 			if oauthToken != "" {

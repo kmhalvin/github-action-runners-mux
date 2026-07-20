@@ -7,14 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kmhalvin/github-action-runners-mux/config"
+	"github.com/kmhalvin/github-action-runners-mux/db/sqlc"
 	"github.com/kmhalvin/github-action-runners-mux/pkg/mux"
 
 	"github.com/actions/scaleset"
 	"github.com/actions/scaleset/listener"
 )
 
-func (m *ScaleSetManager) runListener(ctx context.Context, cfg *config.RunnerConfig, globalMaxWorkers int) error {
+func (m *ScaleSetManager) runListener(ctx context.Context, cfg *sqlc.Runner, globalMaxWorkers int) error {
 	log.Printf("[%s] Starting ScaleSet listener...", cfg.Name)
 
 	client, err := scaleset.NewClientWithPersonalAccessToken(scaleset.NewClientWithPersonalAccessTokenConfig{
@@ -25,7 +25,7 @@ func (m *ScaleSetManager) runListener(ctx context.Context, cfg *config.RunnerCon
 		return fmt.Errorf("failed to create scaleset client: %w", err)
 	}
 
-	runnerGroup := cfg.Group
+	runnerGroup := cfg.RunnerGroup
 	if runnerGroup == "" {
 		runnerGroup = scaleset.DefaultRunnerGroup
 	}
@@ -49,7 +49,8 @@ func (m *ScaleSetManager) runListener(ctx context.Context, cfg *config.RunnerCon
 		// If not found, create it
 		labels := []scaleset.Label{{Name: cfg.ScaleSetName, Type: "custom"}}
 		if len(cfg.Labels) > 0 {
-			for _, lbl := range cfg.Labels {
+			labelsArr := strings.Split(cfg.Labels, ",")
+			for _, lbl := range labelsArr {
 				lbl = strings.TrimSpace(lbl)
 				if lbl != "" {
 					labels = append(labels, scaleset.Label{Name: lbl, Type: "custom"})
@@ -96,7 +97,7 @@ func (m *ScaleSetManager) runListener(ctx context.Context, cfg *config.RunnerCon
 
 	listenerMaxRunners := globalMaxWorkers
 	if cfg.MaxRunners > 0 {
-		listenerMaxRunners = cfg.MaxRunners // Override for this scale set
+		listenerMaxRunners = int(cfg.MaxRunners) // Override for this scale set
 	}
 	lsnr, err := listener.New(sessionClient, listener.Config{
 		ScaleSetID: scaleSet.ID,

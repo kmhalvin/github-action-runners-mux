@@ -12,9 +12,9 @@ type Runner struct {
 	ID            int64     `json:"id"`
 	Name          string    `json:"name"`
 	Mode          string    `json:"mode"`
-	Url           string    `json:"url"`
+	URL           string    `json:"url"`
 	Dir           string    `json:"dir"`
-	Pat           string    `json:"pat"`
+	PAT           string    `json:"pat"`
 	ScaleSetName  string    `json:"scale_set_name"`
 	MaxRunners    int64     `json:"max_runners"`
 	Labels        string    `json:"labels"`
