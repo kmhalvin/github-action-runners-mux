@@ -29,14 +29,7 @@ func (m *StandaloneManager) SyncStaleRunners(runners []sqlc.Runner) {
 		}
 	}
 
-	// Assuming runners are stored in /opt/runners or derived from the first runner
 	baseDir := "/opt/runners"
-	for _, r := range runners {
-		if r.Dir != "" {
-			baseDir = filepath.Dir(r.Dir)
-			break
-		}
-	}
 
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {

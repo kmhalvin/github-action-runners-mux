@@ -270,7 +270,6 @@ export default function AddRunner() {
         max_runners: maxRunners > 0 ? maxRunners : undefined,
         labels: submitMode === "standalone" && labels ? labels.split(",").map(l => l.trim()) : undefined,
         runner_group: !repo.repo && group ? group : undefined,
-        dir: submitMode === "standalone" ? `/opt/runners/${runnerName}` : undefined,
       })
     })
 

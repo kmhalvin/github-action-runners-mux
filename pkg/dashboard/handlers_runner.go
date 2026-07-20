@@ -44,7 +44,6 @@ func (api *API) createRunner(w http.ResponseWriter, r *http.Request) {
 		Mode         string   `json:"mode"`
 		URL          string   `json:"url"`
 		Token        string   `json:"token,omitempty"`
-		Dir          string   `json:"dir,omitempty"`
 		PAT          string   `json:"pat,omitempty"`
 		ScaleSetName string   `json:"scale_set_name,omitempty"`
 		MaxRunners   int      `json:"max_runners,omitempty"`
@@ -62,6 +61,11 @@ func (api *API) createRunner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	dir := ""
+	if payload.Mode == "standalone" {
+		dir = fmt.Sprintf("/opt/runners/%s", payload.Name)
+	}
+
 	labelsStr := ""
 	if payload.Mode == "standalone" && len(payload.Labels) > 0 {
 		labelsStr = strings.Join(payload.Labels, ",")
@@ -71,7 +75,7 @@ func (api *API) createRunner(w http.ResponseWriter, r *http.Request) {
 		Name:         payload.Name,
 		Mode:         payload.Mode,
 		URL:          payload.URL,
-		Dir:          payload.Dir,
+		Dir:          dir,
 		PAT:          payload.PAT,
 		ScaleSetName: payload.ScaleSetName,
 		MaxRunners:   int64(payload.MaxRunners),

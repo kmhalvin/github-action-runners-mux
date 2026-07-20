@@ -36,8 +36,7 @@ export interface AddRunnerPayload {
   max_runners?: number
   /** Labels are only used for standalone mode; ignored for scaleset mode */
   labels?: string[]
-  runner_group?: string
-  dir?: string
+	runner_group?: string
 }
 
 export interface UpdateRunnerPayload {
