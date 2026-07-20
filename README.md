@@ -39,11 +39,11 @@ All configuration is managed through the web dashboard — there is no config fi
 ### 3. Target from Workflows
 
 **For Scale Set Mode:**
-Use your Scale Set name as the `runs-on` label in your GitHub Actions workflows:
+Use the **Runner Name** you configured (which acts as the Scale Set name) or any of the **Custom Labels** you assigned to the runner in your GitHub Actions workflows:
 ```yaml
 jobs:
   build:
-    runs-on: my-scale-set
+    runs-on: my-scale-set-name-or-label
     steps:
       - run: echo "Running on a JIT ephemeral runner!"
 ```
