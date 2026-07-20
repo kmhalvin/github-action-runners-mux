@@ -7,7 +7,7 @@ import (
 	"github.com/kmhalvin/github-action-runners-mux/pkg/mux"
 )
 
-func (m *Manager) LockOthers(activeRunners []string) {
+func (m *StandaloneManager) LockOthers(activeRunners []string) {
 	m.BaseManager.Mu.Lock()
 	defer m.BaseManager.Mu.Unlock()
 
@@ -33,7 +33,7 @@ func (m *Manager) LockOthers(activeRunners []string) {
 	}
 }
 
-func (m *Manager) UnlockOthers() {
+func (m *StandaloneManager) UnlockOthers() {
 	m.BaseManager.Mu.Lock()
 	defer m.BaseManager.Mu.Unlock()
 

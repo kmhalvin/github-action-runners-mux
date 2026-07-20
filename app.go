@@ -30,10 +30,10 @@ type App struct {
 	queries      *sqlc.Queries
 	orchestrator *orchestrator.Orchestrator
 	mux          *mux.Multiplexer
-	stdManager   *standalone.Manager
+	stdManager   *standalone.StandaloneManager
 	ssManager    *scaleset.ScaleSetManager
 	authCfg      *config.AuthConfig
-	
+
 	httpServer   *http.Server
 	unixListener net.Listener
 }
@@ -121,10 +121,10 @@ func (a *App) Start(ctx context.Context) error {
 
 	dashboardAPI := dashboard.NewAPI(a.db, a.queries, a.mux, a.orchestrator, a.authCfg)
 	router := http.NewServeMux()
-	
+
 	// Mount API routes
 	dashboardAPI.MountRoutes(router)
-	
+
 	// Mount static files
 	dashboard.MountStaticFiles(router)
 
@@ -190,7 +190,7 @@ func (a *App) Shutdown(ctx context.Context) error {
 			}
 		}(r.Name, r.Mode)
 	}
-	
+
 	doneCh := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -206,7 +206,7 @@ func (a *App) Shutdown(ctx context.Context) error {
 			_ = a.mux.RemoveRunner(context.Background(), r.Name, true, r.Mode)
 		}
 	}
-	
+
 	if a.db != nil {
 		a.db.Close()
 	}

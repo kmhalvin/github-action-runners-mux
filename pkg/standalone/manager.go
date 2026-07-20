@@ -13,7 +13,7 @@ import (
 	"github.com/kmhalvin/github-action-runners-mux/pkg/mux"
 )
 
-type Manager struct {
+type StandaloneManager struct {
 	*mux.BaseManager
 	listenerData map[string]*ListenerData
 	globalPaused bool
@@ -26,8 +26,8 @@ type ListenerData struct {
 	retryCancel chan struct{}
 }
 
-func NewManager() *Manager {
-	m := &Manager{
+func NewManager() *StandaloneManager {
+	m := &StandaloneManager{
 		listenerData: make(map[string]*ListenerData),
 	}
 	m.BaseManager = mux.NewBaseManager(m)
@@ -35,7 +35,7 @@ func NewManager() *Manager {
 }
 
 // Launch implements mux.ManagerHooks
-func (m *Manager) Launch(ctx context.Context, cfg *config.RunnerConfig) error {
+func (m *StandaloneManager) Launch(ctx context.Context, cfg *config.RunnerConfig) error {
 	// Initialize environment (registration, etc.)
 	if err := InitializeEnvironment(cfg); err != nil {
 		return err
@@ -49,7 +49,7 @@ func (m *Manager) Launch(ctx context.Context, cfg *config.RunnerConfig) error {
 }
 
 // Halt implements mux.ManagerHooks
-func (m *Manager) Halt(name string, force bool) error {
+func (m *StandaloneManager) Halt(name string, force bool) error {
 	m.BaseManager.Mu.Lock()
 	ld, exists := m.listenerData[name]
 	m.BaseManager.Mu.Unlock()
@@ -103,7 +103,7 @@ func (m *Manager) Halt(name string, force bool) error {
 }
 
 // Cleanup implements mux.ManagerHooks
-func (m *Manager) Cleanup(cfg config.RunnerConfig) error {
+func (m *StandaloneManager) Cleanup(cfg config.RunnerConfig) error {
 	credsFile := filepath.Join(cfg.Dir, ".credentials")
 	if _, err := os.Stat(credsFile); os.IsNotExist(err) {
 		log.Printf("[%s] No .credentials found — runner was never registered, skipping deregistration", cfg.Name)
@@ -147,12 +147,12 @@ func (m *Manager) Cleanup(cfg config.RunnerConfig) error {
 }
 
 // Mode implements mux.ManagerHooks
-func (m *Manager) Mode() string {
+func (m *StandaloneManager) Mode() string {
 	return "standalone"
 }
 
 // MarkIdle overrides BaseManager.MarkIdle to provide standalone-specific behavior.
-func (m *Manager) MarkIdle(name string) {
+func (m *StandaloneManager) MarkIdle(name string) {
 	m.BaseManager.Mu.RLock()
 	idleState := mux.StateOnline
 	if m.globalPaused {

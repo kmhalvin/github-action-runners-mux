@@ -25,7 +25,7 @@ const (
 
 // launchListener starts a new Runner.Listener process, wires up log streaming,
 // and updates listenerData with the new Cmd/PGID and state to Online. Returns the started command.
-func (m *Manager) launchListener(cfg *config.RunnerConfig) (*exec.Cmd, error) {
+func (m *StandaloneManager) launchListener(cfg *config.RunnerConfig) (*exec.Cmd, error) {
 	cmd := exec.Command("./bin/Runner.Listener", "run", "--startuptype", "service")
 	cmd.Dir = cfg.Dir
 
@@ -82,7 +82,7 @@ func (m *Manager) launchListener(cfg *config.RunnerConfig) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
-func (m *Manager) startRunner(cfg *config.RunnerConfig) error {
+func (m *StandaloneManager) startRunner(cfg *config.RunnerConfig) error {
 	log.Printf("[%s] Starting Listener via Go command...", cfg.Name)
 
 	cmd, err := m.launchListener(cfg)
@@ -193,7 +193,7 @@ func (m *Manager) startRunner(cfg *config.RunnerConfig) error {
 	return nil
 }
 
-func (m *Manager) streamLogs(name string, r io.Reader, level string) {
+func (m *StandaloneManager) streamLogs(name string, r io.Reader, level string) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
