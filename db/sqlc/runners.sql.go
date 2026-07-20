@@ -12,22 +12,21 @@ import (
 
 const createRunner = `-- name: CreateRunner :one
 INSERT INTO runners (
-    name, mode, url, dir, pat, scale_set_name, max_runners, labels, runner_group
+    name, mode, url, dir, pat, max_runners, labels, runner_group
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?
-) RETURNING id, name, mode, url, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at
+    ?, ?, ?, ?, ?, ?, ?, ?
+) RETURNING id, name, mode, url, dir, pat, max_runners, labels, runner_group, jobs_completed, created_at
 `
 
 type CreateRunnerParams struct {
-	Name         string `json:"name"`
-	Mode         string `json:"mode"`
-	URL          string `json:"url"`
-	Dir          string `json:"dir"`
-	PAT          string `json:"pat"`
-	ScaleSetName string `json:"scale_set_name"`
-	MaxRunners   int64  `json:"max_runners"`
-	Labels       string `json:"labels"`
-	RunnerGroup  string `json:"runner_group"`
+	Name        string `json:"name"`
+	Mode        string `json:"mode"`
+	URL         string `json:"url"`
+	Dir         string `json:"dir"`
+	PAT         string `json:"pat"`
+	MaxRunners  int64  `json:"max_runners"`
+	Labels      string `json:"labels"`
+	RunnerGroup string `json:"runner_group"`
 }
 
 func (q *Queries) CreateRunner(ctx context.Context, arg CreateRunnerParams) (Runner, error) {
@@ -37,7 +36,6 @@ func (q *Queries) CreateRunner(ctx context.Context, arg CreateRunnerParams) (Run
 		arg.URL,
 		arg.Dir,
 		arg.PAT,
-		arg.ScaleSetName,
 		arg.MaxRunners,
 		arg.Labels,
 		arg.RunnerGroup,
@@ -50,7 +48,6 @@ func (q *Queries) CreateRunner(ctx context.Context, arg CreateRunnerParams) (Run
 		&i.URL,
 		&i.Dir,
 		&i.PAT,
-		&i.ScaleSetName,
 		&i.MaxRunners,
 		&i.Labels,
 		&i.RunnerGroup,
@@ -79,7 +76,7 @@ func (q *Queries) DeleteRunnerByName(ctx context.Context, name string) error {
 }
 
 const getRunner = `-- name: GetRunner :one
-SELECT id, name, mode, url, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at FROM runners WHERE id = ? LIMIT 1
+SELECT id, name, mode, url, dir, pat, max_runners, labels, runner_group, jobs_completed, created_at FROM runners WHERE id = ? LIMIT 1
 `
 
 func (q *Queries) GetRunner(ctx context.Context, id int64) (Runner, error) {
@@ -92,7 +89,6 @@ func (q *Queries) GetRunner(ctx context.Context, id int64) (Runner, error) {
 		&i.URL,
 		&i.Dir,
 		&i.PAT,
-		&i.ScaleSetName,
 		&i.MaxRunners,
 		&i.Labels,
 		&i.RunnerGroup,
@@ -103,7 +99,7 @@ func (q *Queries) GetRunner(ctx context.Context, id int64) (Runner, error) {
 }
 
 const getRunnerByName = `-- name: GetRunnerByName :one
-SELECT id, name, mode, url, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at FROM runners WHERE name = ? LIMIT 1
+SELECT id, name, mode, url, dir, pat, max_runners, labels, runner_group, jobs_completed, created_at FROM runners WHERE name = ? LIMIT 1
 `
 
 func (q *Queries) GetRunnerByName(ctx context.Context, name string) (Runner, error) {
@@ -116,7 +112,6 @@ func (q *Queries) GetRunnerByName(ctx context.Context, name string) (Runner, err
 		&i.URL,
 		&i.Dir,
 		&i.PAT,
-		&i.ScaleSetName,
 		&i.MaxRunners,
 		&i.Labels,
 		&i.RunnerGroup,
@@ -127,7 +122,7 @@ func (q *Queries) GetRunnerByName(ctx context.Context, name string) (Runner, err
 }
 
 const getRunnerByURLMode = `-- name: GetRunnerByURLMode :one
-SELECT id, name, mode, url, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at FROM runners WHERE url = ? AND mode = ? LIMIT 1
+SELECT id, name, mode, url, dir, pat, max_runners, labels, runner_group, jobs_completed, created_at FROM runners WHERE url = ? AND mode = ? LIMIT 1
 `
 
 type GetRunnerByURLModeParams struct {
@@ -145,7 +140,6 @@ func (q *Queries) GetRunnerByURLMode(ctx context.Context, arg GetRunnerByURLMode
 		&i.URL,
 		&i.Dir,
 		&i.PAT,
-		&i.ScaleSetName,
 		&i.MaxRunners,
 		&i.Labels,
 		&i.RunnerGroup,
@@ -165,7 +159,7 @@ func (q *Queries) IncrementJobsCompleted(ctx context.Context, name string) error
 }
 
 const listRunners = `-- name: ListRunners :many
-SELECT id, name, mode, url, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at FROM runners ORDER BY name ASC
+SELECT id, name, mode, url, dir, pat, max_runners, labels, runner_group, jobs_completed, created_at FROM runners ORDER BY name ASC
 `
 
 func (q *Queries) ListRunners(ctx context.Context) ([]Runner, error) {
@@ -184,7 +178,6 @@ func (q *Queries) ListRunners(ctx context.Context) ([]Runner, error) {
 			&i.URL,
 			&i.Dir,
 			&i.PAT,
-			&i.ScaleSetName,
 			&i.MaxRunners,
 			&i.Labels,
 			&i.RunnerGroup,
@@ -212,7 +205,7 @@ SET
     labels = COALESCE(?3, labels),
     runner_group = COALESCE(?4, runner_group)
 WHERE id = ?5
-RETURNING id, name, mode, url, dir, pat, scale_set_name, max_runners, labels, runner_group, jobs_completed, created_at
+RETURNING id, name, mode, url, dir, pat, max_runners, labels, runner_group, jobs_completed, created_at
 `
 
 type UpdateRunnerParams struct {
@@ -239,7 +232,6 @@ func (q *Queries) UpdateRunner(ctx context.Context, arg UpdateRunnerParams) (Run
 		&i.URL,
 		&i.Dir,
 		&i.PAT,
-		&i.ScaleSetName,
 		&i.MaxRunners,
 		&i.Labels,
 		&i.RunnerGroup,

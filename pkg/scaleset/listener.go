@@ -41,16 +41,15 @@ func (m *ScaleSetManager) runListener(ctx context.Context, cfg *sqlc.Runner, glo
 		runnerGroupID = rg.ID
 	}
 
-	scaleSet, err := client.GetRunnerScaleSet(ctx, runnerGroupID, cfg.ScaleSetName)
+	scaleSet, err := client.GetRunnerScaleSet(ctx, runnerGroupID, cfg.Name)
 	if err != nil {
 		return fmt.Errorf("failed to get runner scale set: %w", err)
 	}
 	if scaleSet == nil {
-		// If not found, create it
-		labels := []scaleset.Label{{Name: cfg.ScaleSetName, Type: "custom"}}
+		labels := []scaleset.Label{}
 		if len(cfg.Labels) > 0 {
-			labelsArr := strings.Split(cfg.Labels, ",")
-			for _, lbl := range labelsArr {
+			labelsArr := strings.SplitSeq(cfg.Labels, ",")
+			for lbl := range labelsArr {
 				lbl = strings.TrimSpace(lbl)
 				if lbl != "" {
 					labels = append(labels, scaleset.Label{Name: lbl, Type: "custom"})
@@ -58,8 +57,9 @@ func (m *ScaleSetManager) runListener(ctx context.Context, cfg *sqlc.Runner, glo
 			}
 		}
 
+		log.Printf("[%s] Scale set not found. Creating it...", cfg.Name)
 		scaleSet, err = client.CreateRunnerScaleSet(ctx, &scaleset.RunnerScaleSet{
-			Name:          cfg.ScaleSetName,
+			Name:          cfg.Name,
 			RunnerGroupID: runnerGroupID,
 			Labels:        labels,
 		})

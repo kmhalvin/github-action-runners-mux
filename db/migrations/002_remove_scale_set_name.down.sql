@@ -1,0 +1,1 @@
+ALTER TABLE runners ADD COLUMN scale_set_name TEXT NOT NULL DEFAULT '';

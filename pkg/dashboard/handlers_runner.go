@@ -45,7 +45,6 @@ func (api *API) createRunner(w http.ResponseWriter, r *http.Request) {
 		URL          string   `json:"url"`
 		Token        string   `json:"token,omitempty"`
 		PAT          string   `json:"pat,omitempty"`
-		ScaleSetName string   `json:"scale_set_name,omitempty"`
 		MaxRunners   int      `json:"max_runners,omitempty"`
 		Labels       []string `json:"labels,omitempty"`
 		RunnerGroup  string   `json:"runner_group,omitempty"`
@@ -67,7 +66,7 @@ func (api *API) createRunner(w http.ResponseWriter, r *http.Request) {
 	}
 
 	labelsStr := ""
-	if payload.Mode == "standalone" && len(payload.Labels) > 0 {
+	if len(payload.Labels) > 0 {
 		labelsStr = strings.Join(payload.Labels, ",")
 	}
 
@@ -77,7 +76,6 @@ func (api *API) createRunner(w http.ResponseWriter, r *http.Request) {
 		URL:          payload.URL,
 		Dir:          dir,
 		PAT:          payload.PAT,
-		ScaleSetName: payload.ScaleSetName,
 		MaxRunners:   int64(payload.MaxRunners),
 		Labels:       labelsStr,
 		RunnerGroup:  payload.RunnerGroup,
@@ -137,7 +135,6 @@ func (api *API) updateRunner(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Token        string   `json:"token,omitempty"`
 		PAT          string   `json:"pat,omitempty"`
-		ScaleSetName string   `json:"scale_set_name,omitempty"`
 		MaxRunners   int      `json:"max_runners,omitempty"`
 		Labels       []string `json:"labels,omitempty"`
 		RunnerGroup  string   `json:"runner_group,omitempty"`
@@ -166,7 +163,6 @@ func (api *API) updateRunner(w http.ResponseWriter, r *http.Request) {
 
 	input := UpdateRunnerInput{
 		PAT:          payload.PAT,
-		ScaleSetName: payload.ScaleSetName,
 		MaxRunners:   payload.MaxRunners,
 		Labels:       payload.Labels,
 		RunnerGroup:  payload.RunnerGroup,

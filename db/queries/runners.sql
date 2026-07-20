@@ -12,9 +12,9 @@ SELECT * FROM runners WHERE url = ? AND mode = ? LIMIT 1;
 
 -- name: CreateRunner :one
 INSERT INTO runners (
-    name, mode, url, dir, pat, scale_set_name, max_runners, labels, runner_group
+    name, mode, url, dir, pat, max_runners, labels, runner_group
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?
 ) RETURNING *;
 
 -- name: UpdateRunner :one

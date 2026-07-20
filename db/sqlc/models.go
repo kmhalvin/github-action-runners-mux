@@ -15,7 +15,6 @@ type Runner struct {
 	URL           string    `json:"url"`
 	Dir           string    `json:"dir"`
 	PAT           string    `json:"pat"`
-	ScaleSetName  string    `json:"scale_set_name"`
 	MaxRunners    int64     `json:"max_runners"`
 	Labels        string    `json:"labels"`
 	RunnerGroup   string    `json:"runner_group"`

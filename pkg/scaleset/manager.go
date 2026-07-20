@@ -135,7 +135,7 @@ func (m *ScaleSetManager) Cleanup(cfg sqlc.Runner, token string) error {
 		runnerGroupID = rg.ID
 	}
 
-	scaleSet, err := client.GetRunnerScaleSet(ctx, runnerGroupID, cfg.ScaleSetName)
+	scaleSet, err := client.GetRunnerScaleSet(ctx, runnerGroupID, cfg.Name)
 	if err != nil {
 		if strings.Contains(err.Error(), "404") {
 			log.Printf("[%s] Scale set not found on GitHub — nothing to deregister", cfg.Name)
@@ -148,7 +148,7 @@ func (m *ScaleSetManager) Cleanup(cfg sqlc.Runner, token string) error {
 		return nil
 	}
 
-	log.Printf("[%s] Deleting scale set '%s' (ID: %d) from GitHub...", cfg.Name, cfg.ScaleSetName, scaleSet.ID)
+	log.Printf("[%s] Deleting scale set '%s' (ID: %d) from GitHub...", cfg.Name, cfg.Name, scaleSet.ID)
 	if err := client.DeleteRunnerScaleSet(ctx, scaleSet.ID); err != nil {
 		return fmt.Errorf("failed to delete runner scale set: %w", err)
 	}

@@ -54,6 +54,7 @@ function ConfigForm({
   const url = runner.url
   const [pat, setPat] = useState("")
   const [group, setGroup] = useState(runner.runner_group || "")
+  const [labels, setLabels] = useState(runner.labels || "")
   const [maxRunners, setMaxRunners] = useState(runner.max_runners || 0)
   const [loading, setLoading] = useState(false)
   const [patType, setPatType] = useState<"classic" | "fine-grained">("classic")
@@ -95,6 +96,7 @@ function ConfigForm({
         max_runners: mode === "scaleset" && maxRunners > 0 ? maxRunners : undefined,
         // Runner group only for org-scope runners
         runner_group: scope === "Organization" ? (group || undefined) : undefined,
+        labels: labels ? labels.split(",").map((l) => l.trim()) : undefined,
       })
 
       toast.success(isStandaloneRegistered ? "Runner retry requested" : "Runner updated and registration retried")
@@ -132,6 +134,21 @@ function ConfigForm({
             />
             <p className="text-xs text-muted-foreground">
               Runner name cannot be changed after creation.
+            </p>
+          </div>
+
+          {/* Labels — available for both standalone and scaleset */}
+          <div className="flex flex-col gap-3">
+            <Label htmlFor="labels">Labels</Label>
+            <Input
+              id="labels"
+              placeholder="ubuntu-latest, gpu, x64"
+              value={labels}
+              onChange={(e) => setLabels(e.target.value)}
+              disabled={isReadOnly}
+            />
+            <p className="text-xs text-muted-foreground">
+              Comma-separated list of custom labels.
             </p>
           </div>
 

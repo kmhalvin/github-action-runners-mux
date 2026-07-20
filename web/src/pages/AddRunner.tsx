@@ -65,8 +65,7 @@ export default function AddRunner() {
   const [pats, setPats] = useState<Record<string, string>>({})
   const [name, setName] = useState("")
   const [group, setGroup] = useState("")
-  const [scaleSetName, setScaleSetName] = useState("")
-  const [labels, setLabels] = useState("")
+	const [labels, setLabels] = useState("")
   const [maxRunners, setMaxRunners] = useState(0)
   const [loading, setLoading] = useState(false)
   const [nameManuallyEdited, setNameManuallyEdited] = useState(false)
@@ -242,10 +241,6 @@ export default function AddRunner() {
 
     const reposToSubmit = isBatch ? submitRepos : selectedRepos
     if (submitMode === "scaleset") {
-      if (!scaleSetName.trim()) {
-        toast.error("Scale Set Name is required")
-        return
-      }
       for (const input of patInputs) {
         if (!pats[input.key]) {
           toast.error(`PAT is required for ${input.label}`)
@@ -266,9 +261,8 @@ export default function AddRunner() {
         mode: submitMode,
         url: repo.url,
         pat: submitMode === "scaleset" ? pats[getPatKey(repo)] : undefined,
-        scale_set_name: submitMode === "scaleset" ? scaleSetName : undefined,
         max_runners: maxRunners > 0 ? maxRunners : undefined,
-        labels: submitMode === "standalone" && labels ? labels.split(",").map(l => l.trim()) : undefined,
+        labels: labels ? labels.split(",").map(l => l.trim()) : undefined,
         runner_group: !repo.repo && group ? group : undefined,
       })
     })
@@ -497,35 +491,21 @@ export default function AddRunner() {
               )}
             </div>
 
-            {/* Optional Metadata (Labels / Scale Set Name) */}
-            {displayMode === "standalone" ? (
-              <div className="flex flex-col gap-3">
-                <Label htmlFor="labels">Labels</Label>
-                <Input
-                  id="labels"
-                  placeholder="ubuntu-latest, gpu, x64"
-                  value={labels}
-                  onChange={(e) => setLabels(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Comma-separated list of custom labels.
-                </p>
-              </div>
-            ) : (
+            <div className="flex flex-col gap-3">
+              <Label htmlFor="labels">Labels</Label>
+              <Input
+                id="labels"
+                placeholder="ubuntu-latest, gpu, x64"
+                value={labels}
+                onChange={(e) => setLabels(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Comma-separated list of custom labels.
+              </p>
+            </div>
+
+            {displayMode === "scaleset" && (
               <>
-                <div className="flex flex-col gap-3">
-                  <Label htmlFor="scaleSetName">Scale Set Name</Label>
-                  <Input
-                    id="scaleSetName"
-                    placeholder="my-scale-set"
-                    value={scaleSetName}
-                    onChange={(e) => setScaleSetName(e.target.value)}
-                    required
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    The name of the runner scale set created on GitHub.
-                  </p>
-                </div>
                 <div className="flex flex-col gap-3">
                   <Label htmlFor="maxRunners">Max Runners</Label>
                   <Input

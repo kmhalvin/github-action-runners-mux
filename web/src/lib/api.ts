@@ -7,7 +7,6 @@ export interface RunnerStatus {
   url: string
   dir: string
   has_pat: boolean
-  scale_set_name: string
   max_runners: number
   labels: string
   runner_group: string
@@ -32,16 +31,13 @@ export interface AddRunnerPayload {
   mode: string
   url: string
   pat?: string
-  scale_set_name?: string
   max_runners?: number
-  /** Labels are only used for standalone mode; ignored for scaleset mode */
   labels?: string[]
 	runner_group?: string
 }
 
 export interface UpdateRunnerPayload {
   pat?: string
-  scale_set_name?: string
   max_runners?: number
   labels?: string[]
   runner_group?: string
@@ -54,7 +50,6 @@ export interface RunnerDetail {
   url: string
   dir: string
   has_pat: boolean
-  scale_set_name: string
   max_runners: number
   labels: string
   runner_group: string

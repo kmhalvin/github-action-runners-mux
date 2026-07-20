@@ -130,7 +130,6 @@ func (s *RunnerService) CreateRunner(ctx context.Context, params sqlc.CreateRunn
 
 type UpdateRunnerInput struct {
 	PAT          string
-	ScaleSetName string
 	MaxRunners   int
 	Labels       []string
 	RunnerGroup  string
@@ -161,7 +160,7 @@ func (s *RunnerService) UpdateRunner(ctx context.Context, name string, input Upd
 	}
 
 	var updatedRunner sqlc.Runner
-	if alreadyRegistered && input.PAT == "" && input.MaxRunners == 0 && input.RunnerGroup == "" && input.ScaleSetName == "" && len(input.Labels) == 0 {
+	if alreadyRegistered && input.PAT == "" && input.MaxRunners == 0 && input.RunnerGroup == "" && len(input.Labels) == 0 {
 		updatedRunner = dbRunner
 	} else {
 		updateParams := sqlc.UpdateRunnerParams{
