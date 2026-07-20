@@ -52,9 +52,8 @@ func (m *StandaloneManager) Launch(ctx context.Context, cfg *sqlc.Runner, token 
 func (m *StandaloneManager) Halt(name string, force bool) error {
 	m.BaseManager.Mu.Lock()
 	ld, exists := m.listenerData[name]
-	m.BaseManager.Mu.Unlock()
-
 	if !exists {
+		m.BaseManager.Mu.Unlock()
 		return mux.ErrRunnerNotFound
 	}
 
@@ -63,15 +62,19 @@ func (m *StandaloneManager) Halt(name string, force bool) error {
 	// and transition to Offline.
 	if ld.Cmd == nil && ld.retryCancel != nil {
 		close(ld.retryCancel)
+		ld.retryCancel = nil
+		m.BaseManager.Mu.Unlock()
 		return nil
 	}
 
 	if ld.Cmd == nil {
+		m.BaseManager.Mu.Unlock()
 		return nil
 	}
 
 	pgid := ld.PGID
 	cmd := ld.Cmd
+	m.BaseManager.Mu.Unlock()
 
 	var err error
 	if force {

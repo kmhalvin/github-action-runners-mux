@@ -52,10 +52,25 @@ func (m *StandaloneManager) launchListener(cfg *sqlc.Runner) (*exec.Cmd, error) 
 
 	m.BaseManager.Mu.Lock()
 	if ld, exists := m.listenerData[cfg.Name]; exists {
+		// If Halt() was called exactly when we were launching, it would have closed retryCancel.
+		// We must check if it was cancelled before we set the new Cmd.
+		if ld.retryCancel != nil {
+			select {
+			case <-ld.retryCancel:
+				// Halt() was called and closed the channel. We must abort the launch.
+				m.BaseManager.Mu.Unlock()
+				log.Printf("[%s] Halt() called during launch. Killing newly spawned listener...", cfg.Name)
+				_ = syscall.Kill(-pgid, syscall.SIGKILL)
+				_ = cmd.Wait() // wait for it to exit to avoid zombies
+				return nil, fmt.Errorf("launch cancelled by Halt")
+			default:
+			}
+		}
+
 		ld.Cmd = cmd
 		ld.PGID = pgid
+		ld.retryCancel = nil
 	}
-
 	m.BaseManager.SetError(cfg.Name, "")
 
 	// If the system is globally paused at max capacity, instantly freeze this new listener

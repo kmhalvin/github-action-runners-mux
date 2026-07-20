@@ -125,7 +125,7 @@ func (o *Orchestrator) handleContainerDeath(containerID string) {
 	}
 
 	o.logCapacityLocked()
-	o.cond.Broadcast()
+	o.broadcast()
 	o.mutex.Unlock()
 
 	if changed {

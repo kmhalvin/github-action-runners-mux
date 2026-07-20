@@ -36,7 +36,7 @@ func (o *Orchestrator) AllocateWorker(ctx context.Context, runnerName string) (*
 			}
 			o.activeListeners[runnerName]++
 			o.logCapacityLocked()
-			o.cond.Broadcast()
+			o.broadcast()
 
 			o.mutex.Unlock()
 			o.reporterMu.RLock()
@@ -57,8 +57,8 @@ func (o *Orchestrator) AllocateWorker(ctx context.Context, runnerName string) (*
 			o.mutex.Lock()
 			o.bootingCount--
 
-			if err != nil {
-				o.cond.Broadcast()
+		if err != nil {
+				o.broadcast()
 				o.mutex.Unlock()
 				return nil, fmt.Errorf("failed to create worker container: %w", err)
 			}
@@ -75,7 +75,7 @@ func (o *Orchestrator) AllocateWorker(ctx context.Context, runnerName string) (*
 			}
 			o.activeListeners[runnerName]++
 			o.logCapacityLocked()
-			o.cond.Broadcast()
+			o.broadcast()
 			o.mutex.Unlock()
 
 			// Safety check: if the container died before the mutex was locked,
@@ -96,19 +96,16 @@ func (o *Orchestrator) AllocateWorker(ctx context.Context, runnerName string) (*
 			return ww, nil
 		}
 
+		ch := o.broadcastCh
+		o.mutex.Unlock()
+
 		select {
 		case <-ctx.Done():
-			o.mutex.Unlock()
 			return nil, ctx.Err()
-		default:
+		case <-ch:
 		}
 
-		o.cond.Wait()
-
-		if err := ctx.Err(); err != nil {
-			o.mutex.Unlock()
-			return nil, err
-		}
+		o.mutex.Lock()
 	}
 }
 

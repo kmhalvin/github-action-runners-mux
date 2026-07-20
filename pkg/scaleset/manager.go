@@ -88,6 +88,8 @@ func (m *ScaleSetManager) Launch(ctx context.Context, cfg *sqlc.Runner, token st
 					return fmt.Errorf("scaleset listener failed: %s", proc.Error)
 				}
 			}
+		case <-ctx.Done():
+			return ctx.Err()
 		case <-timeout:
 			log.Printf("[%s] ScaleSet listener still registering after 60s — continuing in background", cfg.Name)
 			return nil

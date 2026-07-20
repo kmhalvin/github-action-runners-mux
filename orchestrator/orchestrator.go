@@ -48,7 +48,7 @@ type Orchestrator struct {
 	db                *sql.DB
 	queries           *sqlc.Queries
 	mutex             sync.Mutex
-	cond              *sync.Cond
+	broadcastCh       chan struct{}
 	warmPool          map[string]*WarmWorker
 	activeWorkers     map[string]*ActiveWorker
 	activeListeners   map[string]int
@@ -77,8 +77,8 @@ func NewOrchestrator(pauser GlobalPauser, maxWorkers int, warmWorkers int, db *s
 		maxWorkers:        maxWorkers,
 		warmWorkersConfig: warmWorkers,
 		isPaused:          false,
+		broadcastCh:       make(chan struct{}),
 	}
-	o.cond = sync.NewCond(&o.mutex)
 
 	since := fmt.Sprintf("%d", time.Now().Unix()-eventReplayMargin)
 
@@ -98,6 +98,13 @@ func (o *Orchestrator) SetStatusReporter(reporter StatusReporter) {
 	o.reporter = reporter
 }
 
+// broadcast signals waiters to re-evaluate state. Callers must hold o.mutex.
+func (o *Orchestrator) broadcast() {
+	ch := o.broadcastCh
+	o.broadcastCh = make(chan struct{})
+	close(ch)
+}
+
 func (o *Orchestrator) logCapacityLocked() {
 	total := len(o.warmPool) + len(o.activeWorkers) + o.bootingCount
 	log.Printf("[Orchestrator] Capacity: %d warm, %d active, %d booting, %d/%d total",
@@ -111,7 +118,7 @@ func (o *Orchestrator) UpdateSettings(maxWorkers, warmWorkers int) {
 	o.maxWorkers = maxWorkers
 	o.warmWorkersConfig = warmWorkers
 	log.Printf("[Orchestrator] Settings updated: MaxWorkers=%d, WarmWorkers=%d", maxWorkers, warmWorkers)
-	o.cond.Broadcast()
+	o.broadcast()
 }
 
 // GetStatus returns the current global capacity status

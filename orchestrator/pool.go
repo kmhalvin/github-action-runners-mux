@@ -16,12 +16,18 @@ func (o *Orchestrator) maintainPool() {
 
 	for {
 		for len(o.warmPool)+o.bootingCount >= o.warmWorkersConfig {
-			o.cond.Wait()
+			ch := o.broadcastCh
+			o.mutex.Unlock()
+			<-ch
+			o.mutex.Lock()
 		}
 
 		total := len(o.warmPool) + len(o.activeWorkers) + o.bootingCount
 		if total >= o.maxWorkers {
-			o.cond.Wait()
+			ch := o.broadcastCh
+			o.mutex.Unlock()
+			<-ch
+			o.mutex.Lock()
 			continue
 		}
 
@@ -39,7 +45,9 @@ func (o *Orchestrator) maintainPool() {
 
 			if err != nil {
 				log.Printf("[Orchestrator] Failed to spawn warm container: %v", err)
-				o.cond.Broadcast()
+				o.mutex.Lock()
+				o.broadcast()
+				o.mutex.Unlock()
 				return
 			}
 
@@ -49,7 +57,9 @@ func (o *Orchestrator) maintainPool() {
 			} else {
 				log.Printf("[Orchestrator] Warm container ready: %s", ww.ContainerID[:12])
 			}
-			o.cond.Broadcast()
+			o.mutex.Lock()
+			o.broadcast()
+			o.mutex.Unlock()
 		}()
 	}
 }
@@ -141,4 +151,10 @@ func (o *Orchestrator) checkContainerAlive(containerID string) bool {
 		return false
 	}
 	return inspect.State != nil && inspect.State.Running
+}
+
+// KillWorker forcibly removes a container and lets the orchestrator's event loop reap it.
+func (o *Orchestrator) KillWorker(containerID string) {
+	log.Printf("[Orchestrator] Force killing worker container %s", containerID[:12])
+	_ = o.dockerCli.ContainerRemove(context.Background(), containerID, container.RemoveOptions{Force: true})
 }
