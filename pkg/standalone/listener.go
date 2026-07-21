@@ -115,12 +115,9 @@ func (m *StandaloneManager) startRunner(cfg *sqlc.Runner) error {
 			err := currentCmd.Wait()
 			uptime := time.Since(startTime)
 
+			wasDraining := m.BaseManager.IsDraining(cfg.Name)
+
 			m.BaseManager.Mu.Lock()
-			proc, procExists := m.BaseManager.Processes[cfg.Name]
-			wasDraining := false
-			if procExists {
-				wasDraining = proc.State == mux.StateDraining
-			}
 			ld := m.listenerData[cfg.Name]
 			m.BaseManager.Mu.Unlock()
 

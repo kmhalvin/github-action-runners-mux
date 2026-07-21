@@ -120,6 +120,16 @@ func (b *BaseManager) Stop(name string, force bool) error {
 	return b.Hooks.Halt(name, force)
 }
 
+// IsDraining safely checks if the runner is currently in the Draining state.
+func (b *BaseManager) IsDraining(name string) bool {
+	b.Mu.RLock()
+	defer b.Mu.RUnlock()
+	if proc, exists := b.Processes[name]; exists {
+		return proc.State == StateDraining
+	}
+	return false
+}
+
 // Deregister delegates to hooks.Cleanup.
 func (b *BaseManager) Deregister(cfg sqlc.Runner, token string) error {
 	return b.Hooks.Cleanup(cfg, token)

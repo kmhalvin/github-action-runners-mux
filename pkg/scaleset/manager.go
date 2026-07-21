@@ -3,6 +3,7 @@ package scaleset
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -53,7 +54,10 @@ func (m *ScaleSetManager) Launch(ctx context.Context, cfg *sqlc.Runner, token st
 
 	go func() {
 		err := m.runListener(runCtx, cfg, maxWorkers)
-		if err != nil {
+
+		wasDraining := m.BaseManager.IsDraining(cfg.Name)
+
+		if err != nil && !wasDraining && !errors.Is(err, context.Canceled) {
 			m.BaseManager.Transition(cfg.Name, mux.StateFailed)
 			m.BaseManager.SetError(cfg.Name, err.Error())
 			log.Printf("[%s] ScaleSet Listener exited with error: %v", cfg.Name, err)
