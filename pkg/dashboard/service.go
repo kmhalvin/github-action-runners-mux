@@ -85,12 +85,9 @@ func (s *RunnerService) GetRunner(ctx context.Context, name string) (*CombinedRu
 		return nil, fmt.Errorf("db error: %w", err)
 	}
 
-	liveStatus := mux.RunnerStatus{State: mux.StateOffline}
-	for _, st := range s.mux.GetRunnerStatuses() {
-		if st.Name == name {
-			liveStatus = st
-			break
-		}
+	liveStatus, err := s.mux.GetRunnerStatus(name)
+	if err != nil {
+		liveStatus = mux.RunnerStatus{State: mux.StateOffline}
 	}
 
 	isReg := false
@@ -146,8 +143,9 @@ func (s *RunnerService) UpdateRunner(ctx context.Context, name string, input Upd
 	}
 
 	// Check if runner is currently running/registered — don't allow edit if live
-	for _, st := range s.mux.GetRunnerStatuses() {
-		if st.Name == name && (st.State == mux.StateOnline || st.State == mux.StateBusy || st.State == mux.StateRegistering || st.State == mux.StatePaused || st.State == mux.StateDraining) {
+	st, err := s.mux.GetRunnerStatus(name)
+	if err == nil {
+		if st.State == mux.StateOnline || st.State == mux.StateBusy || st.State == mux.StateRegistering || st.State == mux.StatePaused || st.State == mux.StateDraining {
 			return nil, fmt.Errorf("cannot edit runner %s while it is %s — remove and recreate instead", name, st.State)
 		}
 	}

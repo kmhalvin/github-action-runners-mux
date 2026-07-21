@@ -103,6 +103,21 @@ func (m *Multiplexer) GetRunnerStatuses() []RunnerStatus {
 	return statuses
 }
 
+// GetRunnerStatus returns the status of a specific runner
+func (m *Multiplexer) GetRunnerStatus(name string) (RunnerStatus, error) {
+	if m.standalone != nil {
+		if st, err := m.standalone.GetStatus(name); err == nil {
+			return st, nil
+		}
+	}
+	if m.scaleset != nil {
+		if st, err := m.scaleset.GetStatus(name); err == nil {
+			return st, nil
+		}
+	}
+	return RunnerStatus{}, ErrRunnerNotFound
+}
+
 // MarkBusy marks a runner as busy when a job is allocated
 func (m *Multiplexer) MarkBusy(name string) {
 	if m.standalone != nil {
