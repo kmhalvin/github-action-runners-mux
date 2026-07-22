@@ -52,12 +52,13 @@ type Orchestrator struct {
 	warmPool          map[string]*WarmWorker
 	activeWorkers     map[string]*ActiveWorker
 	activeListeners   map[string]int
-	maxWorkers        int
-	warmWorkersConfig int
-	bootingCount      int
-	isPaused          bool
-	reporterMu        sync.RWMutex
-	reporter          StatusReporter
+	maxWorkers         int
+	warmWorkersConfig  int
+	bootingCount       int
+	pendingAllocations int
+	isPaused           bool
+	reporterMu         sync.RWMutex
+	reporter           StatusReporter
 }
 
 func NewOrchestrator(pauser GlobalPauser, maxWorkers int, warmWorkers int, db *sql.DB, queries *sqlc.Queries) (*Orchestrator, error) {

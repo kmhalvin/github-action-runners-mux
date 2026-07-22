@@ -15,11 +15,13 @@ func (o *Orchestrator) maintainPool() {
 	defer o.mutex.Unlock()
 
 	for {
-		for len(o.warmPool)+o.bootingCount >= o.warmWorkersConfig {
+		target := o.warmWorkersConfig + o.pendingAllocations
+		for len(o.warmPool)+o.bootingCount >= target {
 			ch := o.broadcastCh
 			o.mutex.Unlock()
 			<-ch
 			o.mutex.Lock()
+			target = o.warmWorkersConfig + o.pendingAllocations
 		}
 
 		total := len(o.warmPool) + len(o.activeWorkers) + o.bootingCount
