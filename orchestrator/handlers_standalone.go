@@ -28,8 +28,6 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	o.evaluateCapacity()
-
 	json.NewEncoder(w).Encode(api.AllocateResponse{
 		WorkerIP:    ww.IPAddress,
 		ContainerID: ww.ContainerID,

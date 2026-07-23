@@ -59,6 +59,9 @@ func (o *Orchestrator) AllocateWorker(ctx context.Context, runnerName string) (*
 				o.reporter.MarkBusy(runnerName)
 			}
 			o.reporterMu.RUnlock()
+
+			o.evaluateCapacity()
+
 			return candidate, nil
 		}
 
