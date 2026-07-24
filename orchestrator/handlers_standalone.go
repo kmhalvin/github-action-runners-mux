@@ -34,19 +34,19 @@ func (o *Orchestrator) HandleAllocate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleKillWorker handles requests to kill a container immediately.
-func (o *Orchestrator) HandleKillWorker(w http.ResponseWriter, r *http.Request) {
+// HandleAbortWorker handles requests to abort an allocated container before the job starts.
+func (o *Orchestrator) HandleAbortWorker(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var payload api.KillRequest
+	var payload api.AbortRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "Invalid payload", http.StatusBadRequest)
 		return
 	}
 
-	o.KillWorker(payload.ContainerID)
+	o.AbortWorker(payload.ContainerID)
 	w.WriteHeader(http.StatusOK)
 }

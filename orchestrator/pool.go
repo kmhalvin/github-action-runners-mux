@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
@@ -47,6 +48,7 @@ func (o *Orchestrator) maintainPool() {
 
 			if err != nil {
 				log.Printf("[Orchestrator] Failed to spawn warm container: %v", err)
+				time.Sleep(5 * time.Second) // Break the CPU hot loop if Docker is down
 				o.mutex.Lock()
 				o.broadcast()
 				o.mutex.Unlock()
@@ -67,7 +69,8 @@ func (o *Orchestrator) maintainPool() {
 }
 
 func (o *Orchestrator) startContainer() (*WarmWorker, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	workerEnv := []string{
 		// Pipe runner trace logs to stdout so they appear in `docker logs`.
@@ -124,6 +127,13 @@ exec worker-launcher
 		return nil, fmt.Errorf("failed to create container: %w", err)
 	}
 
+	var containerStarted bool
+	defer func() {
+		if !containerStarted {
+			_ = o.dockerCli.ContainerRemove(context.Background(), resp.ID, container.RemoveOptions{Force: true})
+		}
+	}()
+
 	if err := o.dockerCli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
@@ -141,6 +151,7 @@ exec worker-launcher
 
 	log.Printf("[Orchestrator] Spawned warm worker %s at %s", containerName, ip)
 
+	containerStarted = true
 	return &WarmWorker{
 		ContainerID: resp.ID,
 		IPAddress:   ip,

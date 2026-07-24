@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+
+	"github.com/docker/docker/api/types/container"
 )
 
 func (o *Orchestrator) GetActiveCount(runnerName string) int {
@@ -29,6 +31,26 @@ func (o *Orchestrator) AllocateWorker(ctx context.Context, runnerName string) (*
 
 		if candidate != nil {
 			o.pendingAllocations--
+			o.mutex.Unlock()
+
+			newName := fmt.Sprintf("%s%s-%s", namePrefixActive, runnerName, shortID())
+			if err := o.dockerCli.ContainerRename(ctx, candidate.ContainerID, newName); err != nil {
+				log.Printf("[Orchestrator] Warning: failed to rename container %s: %v", candidate.ContainerID[:12], err)
+			}
+
+			// Safety check: if the container died before we picked it,
+			// we must clean it up and retry allocation.
+			if !o.checkContainerAlive(candidate.ContainerID) {
+				log.Printf("[Orchestrator] Container %s died before allocation, cleaning up and retrying", candidate.ContainerID[:12])
+				_ = o.dockerCli.ContainerRemove(context.Background(), candidate.ContainerID, container.RemoveOptions{Force: true})
+				
+				o.mutex.Lock()
+				o.pendingAllocations++
+				continue
+			}
+
+			// Now that we know it's alive, officially register it as active
+			o.mutex.Lock()
 			o.activeWorkers[candidate.ContainerID] = &ActiveWorker{
 				ContainerID: candidate.ContainerID,
 				IPAddress:   candidate.IPAddress,
@@ -38,21 +60,6 @@ func (o *Orchestrator) AllocateWorker(ctx context.Context, runnerName string) (*
 			o.logCapacityLocked()
 			o.broadcast()
 			o.mutex.Unlock()
-
-			newName := fmt.Sprintf("%s%s-%s", namePrefixActive, runnerName, shortID())
-			if err := o.dockerCli.ContainerRename(ctx, candidate.ContainerID, newName); err != nil {
-				log.Printf("[Orchestrator] Warning: failed to rename container %s: %v", candidate.ContainerID[:12], err)
-			}
-
-			// Safety check: if the container died before we picked it,
-			// we must handle its death and retry allocation.
-			if !o.checkContainerAlive(candidate.ContainerID) {
-				log.Printf("[Orchestrator] Container %s died before allocation, cleaning up and retrying", candidate.ContainerID[:12])
-				o.handleContainerDeath(candidate.ContainerID)
-				o.mutex.Lock()
-				o.pendingAllocations++
-				continue
-			}
 
 			o.reporterMu.RLock()
 			if o.reporter != nil {

@@ -6,6 +6,7 @@ import (
         "io"
         "net/http"
         "strings"
+        "time"
 
         "github.com/kmhalvin/github-action-runners-mux/pkg/github"
 )
@@ -75,7 +76,7 @@ func (api *API) exchangeToken(w http.ResponseWriter, r *http.Request) {
         req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
         req.Header.Set("Accept", "application/json")
 
-        client := &http.Client{}
+        client := &http.Client{Timeout: 10 * time.Second}
         resp, err := client.Do(req)
         if err != nil {
                 WriteError(w, http.StatusBadGateway, fmt.Sprintf("failed to exchange code: %v", err))

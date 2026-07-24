@@ -43,13 +43,16 @@ func (s *Scaler) HandleDesiredRunnerCount(ctx context.Context, count int) (int, 
 	s.mutex.Unlock()
 
 	for range scaleUp {
-		go s.startWorker(context.Background())
+		go s.startWorker()
 	}
 
 	return targetRunnerCount, nil
 }
 
-func (s *Scaler) startWorker(ctx context.Context) {
+func (s *Scaler) startWorker() {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
 	defer func() {
 		s.mutex.Lock()
 		s.pendingCount--
@@ -77,14 +80,14 @@ func (s *Scaler) startWorker(ctx context.Context) {
 	resp, err := client.Post(fmt.Sprintf("http://%s:9001/start", ww.IPAddress), "application/json", bytes.NewBuffer(reqPayload))
 	if err != nil {
 		log.Printf("[%s] Failed to send JIT config to container %s: %v", s.runnerName, ww.ContainerID[:12], err)
-		s.orch.KillWorker(ww.ContainerID)
+		s.orch.AbortWorker(ww.ContainerID)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("[%s] Container %s rejected JIT config (status %d)", s.runnerName, ww.ContainerID[:12], resp.StatusCode)
-		s.orch.KillWorker(ww.ContainerID)
+		s.orch.AbortWorker(ww.ContainerID)
 		return
 	}
 

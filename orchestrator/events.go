@@ -101,10 +101,12 @@ func (o *Orchestrator) handleContainerDeath(containerID string) {
 
 	if aw, ok := o.activeWorkers[containerID]; ok {
 		if o.queries != nil {
-			err := o.queries.IncrementJobsCompleted(context.Background(), aw.RunnerName)
-			if err != nil {
-				log.Printf("[Orchestrator] Warning: failed to increment job count for %s: %v", aw.RunnerName, err)
-			}
+			go func(name string) {
+				err := o.queries.IncrementJobsCompleted(context.Background(), name)
+				if err != nil {
+					log.Printf("[Orchestrator] Warning: failed to increment job count for %s: %v", name, err)
+				}
+			}(aw.RunnerName)
 		}
 
 		delete(o.activeWorkers, containerID)

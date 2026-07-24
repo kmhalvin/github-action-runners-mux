@@ -21,7 +21,7 @@ type AllocateResponse struct {
 	ContainerID string `json:"container_id"`
 }
 
-type KillRequest struct {
+type AbortRequest struct {
 	ContainerID string `json:"container_id"`
 }
 

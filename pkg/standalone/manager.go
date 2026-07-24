@@ -86,16 +86,18 @@ func (m *StandaloneManager) Halt(name string, force bool) error {
 		err = syscall.Kill(cmd.Process.Pid, syscall.SIGINT)
 
 		if err == nil {
-			// Wait for graceful exit
-			done := make(chan struct{})
-			go func() {
-				cmd.Wait()
-				close(done)
-			}()
-
-			select {
-			case <-done:
-			case <-time.After(30 * time.Minute):
+			// Wait for graceful exit by polling state
+			deadline := time.Now().Add(30 * time.Minute)
+			for time.Now().Before(deadline) {
+				status, err := m.BaseManager.GetStatus(name)
+				if err == nil && status.State == mux.StateOffline {
+					break
+				}
+				time.Sleep(1 * time.Second)
+			}
+			
+			status, _ := m.BaseManager.GetStatus(name)
+			if status.State != mux.StateOffline {
 				// Force kill after timeout
 				_ = syscall.Kill(-pgid, syscall.SIGKILL)
 			}
@@ -160,11 +162,22 @@ func (m *StandaloneManager) Mode() string {
 
 // MarkIdle overrides BaseManager.MarkIdle to provide standalone-specific behavior.
 func (m *StandaloneManager) MarkIdle(name string) {
-	m.BaseManager.Mu.RLock()
+	m.BaseManager.Mu.Lock()
+	defer m.BaseManager.Mu.Unlock()
+
 	idleState := mux.StateOnline
 	if m.globalPaused {
 		idleState = mux.StatePaused
 	}
-	m.BaseManager.Mu.RUnlock()
-	m.BaseManager.MarkIdle(name, idleState)
+	
+	proc, exists := m.BaseManager.Processes[name]
+	if !exists {
+		return
+	}
+	if proc.ActiveWorkers > 0 {
+		proc.ActiveWorkers--
+	}
+	if proc.ActiveWorkers == 0 && proc.State == mux.StateBusy {
+		proc.State = idleState
+	}
 }

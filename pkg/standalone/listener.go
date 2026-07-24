@@ -71,7 +71,6 @@ func (m *StandaloneManager) launchListener(cfg *sqlc.Runner) (*exec.Cmd, error) 
 		ld.PGID = pgid
 		ld.retryCancel = nil
 	}
-	m.BaseManager.SetError(cfg.Name, "")
 
 	// If the system is globally paused at max capacity, instantly freeze this new listener
 	if m.globalPaused {
@@ -88,6 +87,8 @@ func (m *StandaloneManager) launchListener(cfg *sqlc.Runner) (*exec.Cmd, error) 
 		m.BaseManager.Mu.Unlock()
 		m.BaseManager.Transition(cfg.Name, mux.StateOnline)
 	}
+
+	m.BaseManager.SetError(cfg.Name, "")
 
 	log.Printf("[%s] Started listener (PID: %d, PGID: %d)", cfg.Name, cmd.Process.Pid, pgid)
 

@@ -135,3 +135,28 @@ func (o *Orchestrator) GetStatus() map[string]any {
 		"is_paused":      o.isPaused,
 	}
 }
+
+// AbortWorker safely removes a worker from the active set without triggering job completion metrics,
+// and then kills the container. This is used when a JIT push fails or the shim crashes before start.
+func (o *Orchestrator) AbortWorker(containerID string) {
+	o.mutex.Lock()
+	if aw, ok := o.activeWorkers[containerID]; ok {
+		delete(o.activeWorkers, containerID)
+		o.activeListeners[aw.RunnerName]--
+		
+		o.reporterMu.RLock()
+		if o.reporter != nil {
+			o.reporter.MarkIdle(aw.RunnerName)
+		}
+		o.reporterMu.RUnlock()
+		
+		log.Printf("[Orchestrator] Aborting active worker %s for %s", containerID[:12], aw.RunnerName)
+	}
+	o.mutex.Unlock()
+	
+	o.evaluateCapacity()
+
+	// Use KillWorker to perform the actual docker kill and cleanup.
+	// Since we removed it from activeWorkers, it won't increment job metrics!
+	o.KillWorker(containerID)
+}
